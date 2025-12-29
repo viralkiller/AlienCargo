@@ -1,0 +1,154 @@
+export const MAX_PLANETS = 8;
+
+export function makeGridMaterial(THREE) {
+  const uniforms = {
+    uTime: { value: 0 },
+    // Grid tuning
+    uGridScale: { value: 0.35 },      // lines per world unit
+    uLineWidth: { value: 1.25 },
+    uSoftening: { value: 8.0 },
+    uDepth: { value: 22.0 },
+    // FLOW x16 (strong)
+    uFlowSpeed: { value: 0.14 * 16.0 },
+    uFlowStrength: { value: 0.018 * 16.0 },
+    uPlanetCount: { value: 0 },
+    uPlanetPos: {
+      value: Array.from({ length: MAX_PLANETS }, () => new THREE.Vector3(9999, 0, 9999))
+    },
+    uPlanetMass: { value: new Array(MAX_PLANETS).fill(0) }
+  };
+
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `
+      uniform float uTime;
+      uniform float uSoftening;
+      uniform float uDepth;
+      uniform int uPlanetCount;
+      uniform vec3 uPlanetPos[${MAX_PLANETS}];
+      uniform float uPlanetMass[${MAX_PLANETS}];
+
+      varying vec2 vWorldXZ;
+      varying float vWell;
+
+      // --- Noise Functions for Terrain ---
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+      }
+
+      // Simple value noise
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        // Hermite smoothing
+        f = f * f * (3.0 - 2.0 * f);
+        float a = hash(i + vec2(0.0, 0.0));
+        float b = hash(i + vec2(1.0, 0.0));
+        float c = hash(i + vec2(0.0, 1.0));
+        float d = hash(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+      }
+
+      // Fractal Brownian Motion (Terrain layering)
+      float fbm(vec2 p) {
+        float total = 0.0;
+        float amp = 1.0;
+        float freq = 0.1;
+        // 3 Octaves
+        for(int i = 0; i < 3; i++) {
+            total += noise(p * freq) * amp;
+            freq *= 2.0;
+            amp *= 0.5;
+        }
+        return total;
+      }
+
+      float well(vec2 d, float m) {
+        return m / (dot(d,d) + uSoftening);
+      }
+
+      void main() {
+        vec3 worldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+
+        // 1. Gravity Wells
+        float w = 0.0;
+        for (int i = 0; i < ${MAX_PLANETS}; i++) {
+          if (i >= uPlanetCount) break;
+          w += well(worldPos.xz - uPlanetPos[i].xz, uPlanetMass[i]);
+        }
+
+        // 2. Terrain Noise (Static in World Space)
+        // Adjust frequency (0.15) for hill size and amplitude (4.0) for height
+        float terrain = fbm(worldPos.xz * 0.15) * 4.0;
+
+        // Apply Displacements
+        vec3 p = position;
+
+        // Push down for gravity, push up/down for terrain
+        p.y -= uDepth * w;
+        p.y += terrain;
+
+        // Pass to fragment
+        vWorldXZ = worldPos.xz;
+        vWell = w;
+
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uGridScale;
+      uniform float uLineWidth;
+      uniform float uSoftening;
+      uniform float uFlowSpeed;
+      uniform float uFlowStrength;
+      uniform int uPlanetCount;
+      uniform vec3 uPlanetPos[${MAX_PLANETS}];
+      uniform float uPlanetMass[${MAX_PLANETS}];
+
+      varying vec2 vWorldXZ;
+      varying float vWell;
+
+      float gridLines(vec2 p) {
+        // p in world space * scale
+        vec2 g = p * uGridScale;
+        // Anti-aliased grid using fwidth
+        vec2 a = abs(fract(g - 0.5) - 0.5) / fwidth(g);
+        float line = 1.0 - min(min(a.x, a.y), 1.0);
+        return smoothstep(0.0, 1.0, line * uLineWidth);
+      }
+
+      void main() {
+        // Flow vector field (WORLD)
+        vec2 flow = vec2(0.0);
+        for (int i = 0; i < ${MAX_PLANETS}; i++) {
+          if (i >= uPlanetCount) break;
+          vec2 d = uPlanetPos[i].xz - vWorldXZ;
+          float r2 = dot(d,d) + uSoftening;
+          flow += normalize(d + 1e-6) * (uPlanetMass[i] / r2);
+        }
+
+        vec2 flowDir = normalize(flow + 1e-6);
+        float flowMag = clamp(length(flow) * 0.08, 0.0, 1.0);
+
+        // Advect the sample position (visual “grid streaming”)
+        vec2 sampleXZ = vWorldXZ + flowDir * (uFlowStrength * flowMag) * (uTime * uFlowSpeed);
+
+        float line = gridLines(sampleXZ);
+
+        // Glow around curvature
+        float glow = clamp(vWell * 12.0, 0.0, 0.55);
+
+        vec3 col = vec3(line);
+        col += glow * vec3(0.9, 0.9, 1.0);
+
+        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+      }
+    `,
+    transparent: false,
+    depthWrite: true,
+    depthTest: true
+  });
+
+  return { material, uniforms };
+}

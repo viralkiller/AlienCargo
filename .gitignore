@@ -1,0 +1,38 @@
+# Compiled python modules.
+__pycache__/
+*.py[cod]
+
+# Caches and logs.
+.cache/
+.ipynb_checkpoints/
+
+# Environment directories.
+.local/
+.virtualenvs/
+
+# Ignore version control directories.
+.git/
+
+# OS generated files.
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor directories and files.
+.vscode/
+*.swp
+*~
+.project
+.idea/
+*.sublime-workspace
+
+# SSH Configuration.
+.ssh/
+
+# IPython Notebook.
+.ipynb
+.ipython/

@@ -1,0 +1,617 @@
+Aggregated on: 2025-12-29 14:53:42
+================================================================================
+Project Directory Tree:
+/
+├── static
+│   ├── images
+│   │   └── logo.png
+│   ├── js
+│   │   └── blackhole
+│   │       ├── input
+│   │       │   ├── camera_controls.js
+│   │       │   ├── input_state.js
+│   │       │   └── ship_controls.js
+│   │       ├── phaser
+│   │       │   └── phaser_overlay.js
+│   │       ├── shared
+│   │       │   ├── math.js
+│   │       │   └── resize.js
+│   │       ├── three
+│   │       │   ├── asteroids.js
+│   │       │   ├── grid.js
+│   │       │   ├── grid_shader.js
+│   │       │   ├── planets.js
+│   │       │   ├── ship.js
+│   │       │   └── three_boot.js
+│   │       └── main.js
+│   ├── panoramas
+│   └── sounds
+│       └── bass_rumble.mp3
+├── templates
+│   └── index.html
+├── .bashrc
+├── .gitconfig
+├── .profile
+├── .pythonstartup.py
+├── .vimrc
+├── _Review_Functions.py
+├── flask_app.py
+├── project_directory_full_code_1.txt
+└── README.txt
+
+11 directories, 25 files
+================================================================================
+
+[-] This file: .pythonstartup.py | Contents:
+import rlcompleter
+import readline
+readline.parse_and_bind("tab: complete")
+================================================================================
+
+[-] This file: flask_app.py | Contents:
+# flask_app.py
+import logging
+from pathlib import Path
+from flask import Flask, render_template
+# -----------------------------
+# Config
+# -----------------------------
+BASE_DIR = Path(__file__).resolve().parent
+# -----------------------------
+# Logging
+# -----------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger("blackhole")
+# -----------------------------
+# App setup
+# -----------------------------
+app = Flask(__name__)
+# -----------------------------
+# Routes
+# -----------------------------
+@app.get("/")
+def index():
+    logger.info("UI: render index")
+    return render_template("index.html")
+# -----------------------------
+# Local dev entrypoint
+# -----------------------------
+if __name__ == "__main__":
+    logger.info("Starting dev server at http://127.0.0.1:5000")
+    app.run(debug=True, host="127.0.0.1", port=5000)
+================================================================================
+
+[-] This file: static/js/blackhole/input/camera_controls.js | Contents:
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+const _desiredPos = new THREE.Vector3();
+const _lookAt = new THREE.Vector3();
+const _forward = new THREE.Vector3(0, 0, -1);
+export function updateChaseCamera(camera, ship, dt) {
+  // Ship forward from its yaw
+  const shipYaw = ship.mesh.rotation.y - Math.PI / 4;
+  const shipForward = _forward.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), shipYaw);
+  // Camera offset behind/above ship in WORLD space
+  const camHeight = 13.5;
+  const camBack = 27.5;
+  // Keep symmetrical: behind is +Z when ship forward is -Z
+  _desiredPos.set(
+    ship.mesh.position.x,
+    ship.mesh.position.y + camHeight,
+    ship.mesh.position.z + camBack
+  );
+  // Look ahead so ship sits lower
+  const lookAhead = 12.0;
+  _lookAt.copy(ship.mesh.position).addScaledVector(shipForward, lookAhead);
+  // Smooth follow (stable + nice)
+  const follow = 1.0 - Math.pow(0.001, dt); // dt-correct smoothing
+  camera.position.lerp(_desiredPos, follow);
+  camera.lookAt(_lookAt);
+  // Debug log occasionally (not every frame)
+  // You can uncomment if needed:
+  // if (Math.random() < 0.01) console.log("[CAM][CHASE]", camera.position.toArray().map(n=>n.toFixed(2)).join(","));
+}
+================================================================================
+
+[-] This file: static/js/blackhole/input/input_state.js | Contents:
+export const input = {
+  keys: new Set(),
+  dragging: false,
+  yaw: 0,
+  pitch: 0
+};
+window.addEventListener("keydown", e => input.keys.add(e.code));
+window.addEventListener("keyup", e => input.keys.delete(e.code));
+================================================================================
+
+[-] This file: static/js/blackhole/input/ship_controls.js | Contents:
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+import { input } from "./input_state.js";
+const ray = new THREE.Raycaster();
+const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const _hit = new THREE.Vector3();
+export function updateShip(ship, camera, renderer, dt) {
+  const w = renderer.domElement.clientWidth;
+  const h = renderer.domElement.clientHeight;
+  // Bottom control box anchor (screen space)
+  const cx = w / 2;
+  const by = h - ship.state.boxBottom;
+  // Persistent cursor inside box (screen space)
+  if (ship.state.cursorX === undefined) ship.state.cursorX = cx;
+  if (ship.state.cursorY === undefined) ship.state.cursorY = by - ship.state.boxHeight * 0.35;
+  let dx = 0;
+  let dy = 0;
+  if (input.keys.has("ArrowLeft")) dx -= 1;
+  if (input.keys.has("ArrowRight")) dx += 1;
+  // IMPORTANT: Up should move the cursor UP (smaller sy) => forward in your chase view
+  if (input.keys.has("ArrowUp")) dy -= 1;
+  if (input.keys.has("ArrowDown")) dy += 1;
+  if (!dx && !dy) return;
+  // Normalize diagonal
+  const len = Math.hypot(dx, dy) || 1;
+  dx /= len;
+  dy /= len;
+  // Move cursor inside the box (accumulative!)
+  const pxPerSec = ship.state.speedPx; // treat speedPx as cursor speed too
+  ship.state.cursorX += dx * pxPerSec * dt;
+  ship.state.cursorY += dy * pxPerSec * dt;
+  // Clamp cursor to the red box
+  const minX = cx - ship.state.boxWidth / 2;
+  const maxX = cx + ship.state.boxWidth / 2;
+  const minY = by - ship.state.boxHeight;
+  const maxY = by;
+  ship.state.cursorX = Math.max(minX, Math.min(maxX, ship.state.cursorX));
+  ship.state.cursorY = Math.max(minY, Math.min(maxY, ship.state.cursorY));
+  // Also clamp to window bounds (safety)
+  ship.state.cursorX = Math.max(0, Math.min(w, ship.state.cursorX));
+  ship.state.cursorY = Math.max(0, Math.min(h, ship.state.cursorY));
+  // Debug (throttle a bit)
+  if (Math.random() < 0.05) {
+    console.log("[SHIP][CURSOR]", {
+      dx: dx.toFixed(2),
+      dy: dy.toFixed(2),
+      cursorX: ship.state.cursorX.toFixed(1),
+      cursorY: ship.state.cursorY.toFixed(1),
+    });
+  }
+  // Screen -> ray -> plane hit
+  ray.setFromCamera(
+    new THREE.Vector2((ship.state.cursorX / w) * 2 - 1, -(ship.state.cursorY / h) * 2 + 1),
+    camera
+  );
+  plane.constant = -ship.state.y;
+  if (ray.ray.intersectPlane(plane, _hit)) {
+    ship.mesh.position.set(_hit.x, ship.state.y, _hit.z);
+    if (Math.random() < 0.03) {
+      console.log("[SHIP][HIT]", {
+        x: _hit.x.toFixed(2),
+        z: _hit.z.toFixed(2),
+      });
+    }
+  } else {
+    console.warn("[SHIP] ray-plane miss");
+  }
+}
+================================================================================
+
+[-] This file: static/js/blackhole/main.js | Contents:
+import { initThree } from "./three/three_boot.js";
+import { createGrid, followGridToShip } from "./three/grid.js";
+import { createShip } from "./three/ship.js";
+import { spawnPlanets } from "./three/planets.js";
+import { spawnAsteroids, updateAsteroids, checkShipCollision } from "./three/asteroids.js";
+import { updateShip } from "./input/ship_controls.js";
+import { initOverlay } from "./phaser/phaser_overlay.js";
+import { setupResize } from "./shared/resize.js";
+import { updateChaseCamera } from "./input/camera_controls.js";
+const canvas = document.getElementById("threeCanvas");
+const { renderer, scene, camera } = initThree(canvas);
+window.__camera = camera;
+const { mesh: gridMesh, uniforms } = createGrid(scene);
+const ship = createShip(scene);
+const planets = spawnPlanets(scene, uniforms);
+const asteroids = spawnAsteroids(scene, planets, ship.state.y);
+const phaserGame = initOverlay(ship);
+setupResize(renderer, camera, phaserGame);
+let last = performance.now();
+function loop(t) {
+  const dt = Math.min(0.033, (t - last) / 1000);
+  last = t;
+  uniforms.uTime.value += dt;
+  // Ship moves in its bottom box
+  updateShip(ship, camera, renderer, dt);
+  // Camera is locked to ship (chase)
+  updateChaseCamera(camera, ship, dt);
+  // Keep grid under ship (no edges, constant memory)
+  followGridToShip(gridMesh, ship.mesh);
+  // Orbiting hazards
+  updateAsteroids(asteroids, dt);
+  if (checkShipCollision(ship, asteroids)) {
+    console.log("[COLLISION] ship hit asteroid");
+  }
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+console.log("[BOOT] main loop started");
+================================================================================
+
+[-] This file: static/js/blackhole/phaser/phaser_overlay.js | Contents:
+export function initOverlay(ship) {
+  let marker, box;
+  const game = new Phaser.Game({
+    type: Phaser.WEBGL,
+    parent: "phaserMount",
+    width: innerWidth,
+    height: innerHeight,
+    transparent: true,
+    scale: { mode: Phaser.Scale.RESIZE },
+    scene: {
+      create() {
+        marker = this.add.circle(0, 0, 5, 0xffffff).setDepth(10);
+        box = this.add.graphics().setDepth(9);
+        this.add.text(
+          14, 12,
+          "Arrow keys: ship (bottom box)\nAvoid orbiting asteroids\nCamera follows ship",
+          { fontSize: "14px", color: "#fff" }
+        );
+        console.log("[PHASER] overlay ready");
+      },
+      update() {
+        const v = ship.mesh.position.clone().project(window.__camera);
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        marker.setPosition((v.x * 0.5 + 0.5) * w, (-v.y * 0.5 + 0.5) * h);
+        const cx = w / 2;
+        const by = h - ship.state.boxBottom;
+        box.clear().lineStyle(2, 0xff0000, 0.6).strokeRect(
+          cx - ship.state.boxWidth / 2,
+          by - ship.state.boxHeight,
+          ship.state.boxWidth,
+          ship.state.boxHeight
+        );
+      }
+    }
+  });
+  return game;
+}
+================================================================================
+
+[-] This file: static/js/blackhole/shared/math.js | Contents:
+export function rand(min, max) {
+  return min + Math.random() * (max - min);
+}
+================================================================================
+
+[-] This file: static/js/blackhole/shared/resize.js | Contents:
+export function setupResize(renderer, camera, phaserGame) {
+  let queued = false;
+  function doResize() {
+    queued = false;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    if (phaserGame?.scale?.resize) {
+      try { phaserGame.scale.resize(w, h); }
+      catch {}
+    }
+    console.log("[RESIZE]", w, h);
+  }
+  window.addEventListener("resize", () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(doResize);
+  });
+  doResize();
+}
+================================================================================
+
+[-] This file: static/js/blackhole/three/asteroids.js | Contents:
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+import { rand } from "../shared/math.js";
+export function spawnAsteroids(scene, planets, shipY) {
+  const asteroids = [];
+  planets.forEach((p) => {
+    if (p.isBlackHole) return;
+    const count = Math.floor(rand(4, 7));
+    for (let i = 0; i < count; i++) {
+      const r = rand(0.12, 0.28);
+      const orbit = p.mesh.geometry.parameters.radius + rand(1.2, 3.6);
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(r, 12, 10),
+        new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.9, metalness: 0.0 })
+      );
+      scene.add(mesh);
+      asteroids.push({
+        mesh,
+        planet: p,
+        angle: rand(0, Math.PI * 2),
+        speed: rand(0.6, 1.8) * (Math.random() < 0.5 ? -1 : 1),
+        orbit,
+        r,
+        y: shipY + rand(-0.2, 0.2),
+      });
+    }
+  });
+  console.log("[ASTEROIDS] spawned:", asteroids.length);
+  return asteroids;
+}
+export function updateAsteroids(asteroids, dt) {
+  asteroids.forEach((a) => {
+    a.angle += a.speed * dt;
+    a.mesh.position.set(
+      a.planet.mesh.position.x + Math.cos(a.angle) * a.orbit,
+      a.y,
+      a.planet.mesh.position.z + Math.sin(a.angle) * a.orbit
+    );
+  });
+}
+export function checkShipCollision(ship, asteroids) {
+  for (const a of asteroids) {
+    const dx = a.mesh.position.x - ship.mesh.position.x;
+    const dz = a.mesh.position.z - ship.mesh.position.z;
+    const rr = (ship.radius + a.r) * (ship.radius + a.r);
+    if (dx * dx + dz * dz < rr) return true;
+  }
+  return false;
+}
+================================================================================
+
+[-] This file: static/js/blackhole/three/grid.js | Contents:
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+import { makeGridMaterial } from "./grid_shader.js";
+export function createGrid(scene) {
+  const { material, uniforms } = makeGridMaterial(THREE);
+  // Moderate size plane: constant memory.
+  // Pattern is infinite due to world-based shader.
+  const geo = new THREE.PlaneGeometry(180, 180, 240, 240);
+  geo.rotateX(-Math.PI / 2);
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.position.set(0, 0, 0);
+  scene.add(mesh);
+  return { mesh, uniforms };
+}
+export function followGridToShip(gridMesh, shipMesh) {
+  // Keep grid centered under ship to avoid seeing edges
+  gridMesh.position.x = shipMesh.position.x;
+  gridMesh.position.z = shipMesh.position.z;
+}
+================================================================================
+
+[-] This file: static/js/blackhole/three/grid_shader.js | Contents:
+export const MAX_PLANETS = 8;
+export function makeGridMaterial(THREE) {
+  const uniforms = {
+    uTime: { value: 0 },
+    // Grid tuning
+    uGridScale: { value: 0.35 },     // lines per world unit (world-based)
+    uLineWidth: { value: 1.25 },
+    uSoftening: { value: 8.0 },
+    uDepth: { value: 22.0 },
+    // FLOW x16 (strong)
+    uFlowSpeed: { value: 0.14 * 16.0 },
+    uFlowStrength: { value: 0.018 * 16.0 },
+    uPlanetCount: { value: 0 },
+    uPlanetPos: {
+      value: Array.from({ length: MAX_PLANETS }, () => new THREE.Vector3(9999, 0, 9999))
+    },
+    uPlanetMass: { value: new Array(MAX_PLANETS).fill(0) }
+  };
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `
+      uniform float uTime;
+      uniform float uSoftening;
+      uniform float uDepth;
+      uniform int uPlanetCount;
+      uniform vec3 uPlanetPos[${MAX_PLANETS}];
+      uniform float uPlanetMass[${MAX_PLANETS}];
+      varying vec2 vWorldXZ;
+      varying float vWell;
+      float well(vec2 d, float m) {
+        return m / (dot(d,d) + uSoftening);
+      }
+      void main() {
+        vec3 worldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+        // Wells in WORLD coordinates
+        float w = 0.0;
+        for (int i = 0; i < ${MAX_PLANETS}; i++) {
+          if (i >= uPlanetCount) break;
+          w += well(worldPos.xz - uPlanetPos[i].xz, uPlanetMass[i]);
+        }
+        // Displace DOWN in local space, but amount from WORLD wells
+        vec3 p = position;
+        p.y -= uDepth * w;
+        // Subtle ripple (also in world coords)
+        p.y += 0.10 * sin(uTime + worldPos.x * 0.08) * cos(uTime + worldPos.z * 0.07);
+        vWorldXZ = worldPos.xz;
+        vWell = w;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uGridScale;
+      uniform float uLineWidth;
+      uniform float uSoftening;
+      uniform float uFlowSpeed;
+      uniform float uFlowStrength;
+      uniform int uPlanetCount;
+      uniform vec3 uPlanetPos[${MAX_PLANETS}];
+      uniform float uPlanetMass[${MAX_PLANETS}];
+      varying vec2 vWorldXZ;
+      varying float vWell;
+      float gridLines(vec2 p) {
+        // p in world space * scale
+        vec2 g = p * uGridScale;
+        // Anti-aliased grid using fwidth
+        vec2 a = abs(fract(g - 0.5) - 0.5) / fwidth(g);
+        float line = 1.0 - min(min(a.x, a.y), 1.0);
+        return smoothstep(0.0, 1.0, line * uLineWidth);
+      }
+      void main() {
+        // Flow vector field (WORLD)
+        vec2 flow = vec2(0.0);
+        for (int i = 0; i < ${MAX_PLANETS}; i++) {
+          if (i >= uPlanetCount) break;
+          vec2 d = uPlanetPos[i].xz - vWorldXZ;
+          float r2 = dot(d,d) + uSoftening;
+          flow += normalize(d + 1e-6) * (uPlanetMass[i] / r2);
+        }
+        vec2 flowDir = normalize(flow + 1e-6);
+        float flowMag = clamp(length(flow) * 0.08, 0.0, 1.0);
+        // Advect the sample position (visual “grid streaming”)
+        vec2 sampleXZ = vWorldXZ + flowDir * (uFlowStrength * flowMag) * (uTime * uFlowSpeed);
+        float line = gridLines(sampleXZ);
+        // Glow around curvature
+        float glow = clamp(vWell * 12.0, 0.0, 0.55);
+        vec3 col = vec3(line);
+        col += glow * vec3(0.9, 0.9, 1.0);
+        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+      }
+    `,
+    transparent: false,
+    depthWrite: true,
+    depthTest: true
+  });
+  return { material, uniforms };
+}
+================================================================================
+
+[-] This file: static/js/blackhole/three/planets.js | Contents:
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+import { rand } from "../shared/math.js";
+export function spawnPlanets(scene, uniforms) {
+  const planets = [];
+  const anchors = [
+    [-35, 22],
+    [22, 20],
+    [-18, -18],
+    [0, 0],
+    [36, -20],
+    [-38, -26],
+    [10, 30],
+  ];
+  anchors.forEach(([x, z], i) => {
+    const isBlackHole = i === 3;
+    const r = isBlackHole ? rand(1.3, 2.0) : rand(0.9, 2.4);
+    const mass = r * r * (isBlackHole ? 18 : 3);
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(r, 24, 18),
+      new THREE.MeshStandardMaterial({
+        color: isBlackHole ? 0x050508 : new THREE.Color().setHSL(Math.random(), 0.6, 0.55),
+        roughness: isBlackHole ? 0.25 : 0.55,
+        metalness: 0.0,
+      })
+    );
+    mesh.position.set(x + rand(-2, 2), rand(3, 6), z + rand(-2, 2));
+    scene.add(mesh);
+    planets.push({ mesh, mass, isBlackHole });
+  });
+  uniforms.uPlanetCount.value = planets.length;
+  planets.forEach((p, i) => {
+    uniforms.uPlanetPos.value[i].copy(p.mesh.position);
+    uniforms.uPlanetMass.value[i] = p.mass;
+  });
+  return planets;
+}
+================================================================================
+
+[-] This file: static/js/blackhole/three/ship.js | Contents:
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+export function createShip(scene) {
+  const mesh = new THREE.Mesh(
+    new THREE.ConeGeometry(0.65, 1.6, 4, 1),
+    new THREE.MeshStandardMaterial({ color: 0xffffff })
+  );
+  mesh.rotation.y = Math.PI / 4;
+  mesh.position.set(0, 3, 0);
+  scene.add(mesh);
+  return {
+    mesh,
+    radius: 0.55,
+    state: {
+      y: 3,
+      speedPx: 280,
+      boxWidth: 360,
+      boxHeight: 210,
+      boxBottom: 70
+    }
+  };
+}
+================================================================================
+
+[-] This file: static/js/blackhole/three/three_boot.js | Contents:
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+export function initThree(canvas) {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setClearColor(0x000000, 1);
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 5000);
+  camera.rotation.order = "YXZ";
+  resetCameraSym(camera);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x101018, 0.8));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.6);
+  dir.position.set(20, 40, 10);
+  scene.add(dir);
+  return { renderer, scene, camera };
+}
+export function resetCameraSym(camera) {
+  camera.position.set(0, 13.5, 27.5);
+  camera.lookAt(0, 0, 0);
+}
+================================================================================
+
+[-] This file: templates/index.html | Contents:
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Black Hole – Hybrid 2.5D Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: system-ui, Arial, sans-serif;
+    }
+    #wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    canvas {
+      position: absolute;
+      inset: 0;
+      width: 100% !important;
+      height: 100% !important;
+      display: block;
+    }
+    #threeCanvas { z-index: 0; }
+    #phaserMount canvas {
+      z-index: 1;
+      background: transparent !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="threeCanvas"></canvas>
+    <div id="phaserMount"></div>
+  </div>
+  <!-- Phaser -->
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+  <!-- Main entry -->
+  <script type="module" src="/static/js/blackhole/main.js"></script>
+</body>
+</html>
+================================================================================
