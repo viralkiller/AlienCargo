@@ -1,7 +1,9 @@
-Aggregated on: 2025-12-29 14:53:42
+Aggregated on: 2025-12-29 15:53:25
 ================================================================================
 Project Directory Tree:
 /
+├── data
+│   └── universe.json
 ├── static
 │   ├── images
 │   │   └── logo.png
@@ -22,7 +24,8 @@ Project Directory Tree:
 │   │       │   ├── grid_shader.js
 │   │       │   ├── planets.js
 │   │       │   ├── ship.js
-│   │       │   └── three_boot.js
+│   │       │   ├── three_boot.js
+│   │       │   └── universe.js
 │   │       └── main.js
 │   ├── panoramas
 │   └── sounds
@@ -31,6 +34,7 @@ Project Directory Tree:
 │   └── index.html
 ├── .bashrc
 ├── .gitconfig
+├── .gitignore
 ├── .profile
 ├── .pythonstartup.py
 ├── .vimrc
@@ -39,7 +43,7 @@ Project Directory Tree:
 ├── project_directory_full_code_1.txt
 └── README.txt
 
-11 directories, 25 files
+12 directories, 28 files
 ================================================================================
 
 [-] This file: .pythonstartup.py | Contents:
@@ -51,12 +55,18 @@ readline.parse_and_bind("tab: complete")
 [-] This file: flask_app.py | Contents:
 # flask_app.py
 import logging
+import json
+import os
 from pathlib import Path
-from flask import Flask, render_template
+from flask import Flask, render_template, request, jsonify
 # -----------------------------
 # Config
 # -----------------------------
 BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+UNIVERSE_FILE = DATA_DIR / "universe.json"
+# Ensure data directory exists
+os.makedirs(DATA_DIR, exist_ok=True)
 # -----------------------------
 # Logging
 # -----------------------------
@@ -70,12 +80,54 @@ logger = logging.getLogger("blackhole")
 # -----------------------------
 app = Flask(__name__)
 # -----------------------------
+# Data Persistence Helpers
+# -----------------------------
+def load_universe_data():
+    """Loads the entire universe dictionary from JSON."""
+    if not UNIVERSE_FILE.exists():
+        return {}
+    try:
+        with open(UNIVERSE_FILE, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to load universe data: {e}")
+        return {}
+def save_universe_data(new_data):
+    """Merges new sector data into the existing JSON file."""
+    try:
+        # Load existing first to merge
+        current = load_universe_data()
+        current.update(new_data)
+        with open(UNIVERSE_FILE, "w") as f:
+            json.dump(current, f, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to save universe data: {e}")
+# -----------------------------
 # Routes
 # -----------------------------
 @app.get("/")
 def index():
     logger.info("UI: render index")
     return render_template("index.html")
+@app.get("/api/universe/load")
+def load_sectors():
+    """
+    Returns specific sectors requested via query param ?keys=1:2,1:3
+    """
+    keys = request.args.get("keys")
+    all_data = load_universe_data()
+    if not keys:
+        # If no keys specified, return everything (useful for debug, risky if huge)
+        return jsonify(all_data)
+    requested_keys = keys.split(",")
+    result = {k: all_data[k] for k in requested_keys if k in all_data}
+    return jsonify(result)
+@app.post("/api/universe/save")
+def save_sector():
+    """Receives a dictionary of sectors -> planet data and saves them."""
+    data = request.json
+    save_universe_data(data)
+    return jsonify({"status": "ok"})
 # -----------------------------
 # Local dev entrypoint
 # -----------------------------
@@ -103,7 +155,12 @@ export function updateChaseCamera(camera, ship, dt) {
     ship.mesh.position.z + camBack
   );
   // Look ahead so ship sits lower
-  const lookAhead = 12.0;
+  // FIX: Increased lookAhead from 12.0 to 100.0.
+  // This tilts the camera up, pushing the ship's visual position down to the
+  // bottom of the screen where the control box is located.
+  // This aligns the "neutral" cursor position with the ship's actual position,
+  // preventing the infinite backward drift loop.
+  const lookAhead = 100.0;
   _lookAt.copy(ship.mesh.position).addScaledVector(shipForward, lookAhead);
   // Smooth follow (stable + nice)
   const follow = 1.0 - Math.pow(0.001, dt); // dt-correct smoothing
@@ -200,19 +257,28 @@ export function updateShip(ship, camera, renderer, dt) {
 import { initThree } from "./three/three_boot.js";
 import { createGrid, followGridToShip } from "./three/grid.js";
 import { createShip } from "./three/ship.js";
-import { spawnPlanets } from "./three/planets.js";
+import { Universe } from "./three/universe.js";
 import { spawnAsteroids, updateAsteroids, checkShipCollision } from "./three/asteroids.js";
 import { updateShip } from "./input/ship_controls.js";
 import { initOverlay } from "./phaser/phaser_overlay.js";
 import { setupResize } from "./shared/resize.js";
 import { updateChaseCamera } from "./input/camera_controls.js";
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 const canvas = document.getElementById("threeCanvas");
 const { renderer, scene, camera } = initThree(canvas);
 window.__camera = camera;
 const { mesh: gridMesh, uniforms } = createGrid(scene);
 const ship = createShip(scene);
-const planets = spawnPlanets(scene, uniforms);
-const asteroids = spawnAsteroids(scene, planets, ship.state.y);
+// Initialize the Infinite Universe Manager
+const universe = new Universe(scene, uniforms);
+// Create a pool of asteroids.
+// We pass a dummy list of planets initially because the Universe loads async.
+// This ensures the asteroid meshes are created. We will re-bind them in the loop.
+const dummyPlanet = {
+    mesh: { position: new THREE.Vector3(), geometry: { parameters: { radius: 2 }}}
+};
+// Spawn 3 groups of asteroids based on dummy data to fill the pool
+const asteroidPool = spawnAsteroids(scene, [dummyPlanet, dummyPlanet, dummyPlanet], ship.state.y);
 const phaserGame = initOverlay(ship);
 setupResize(renderer, camera, phaserGame);
 let last = performance.now();
@@ -226,9 +292,29 @@ function loop(t) {
   updateChaseCamera(camera, ship, dt);
   // Keep grid under ship (no edges, constant memory)
   followGridToShip(gridMesh, ship.mesh);
-  // Orbiting hazards
-  updateAsteroids(asteroids, dt);
-  if (checkShipCollision(ship, asteroids)) {
+  // Universe Logic (Handles loading/unloading/rendering planets)
+  universe.update(ship.mesh);
+  // Asteroid Logic: Bind asteroids to currently active planets
+  // This allows asteroids to reuse the pool and appear around whatever is close
+  if (universe.activePlanets && universe.activePlanets.length > 0) {
+    asteroidPool.forEach((a, i) => {
+        // Distribute asteroids among the visible planets
+        const p = universe.activePlanets[i % universe.activePlanets.length];
+        // If the asteroid is extremely far from its assigned planet (e.g. planet unloaded),
+        // snap it back to the new planet immediately
+        const dx = a.mesh.position.x - p.position.x;
+        const dz = a.mesh.position.z - p.position.z;
+        if (dx*dx + dz*dz > 50000) {
+             a.angle = Math.random() * Math.PI * 2; // Reset orbit angle
+        }
+        // Update the reference so updateAsteroids() calculates orbit around THIS planet
+        a.planet = { mesh: p };
+        // Update orbit radius based on the new planet's size
+        a.orbit = p.userData.r + 3.0 + (i % 3);
+    });
+  }
+  updateAsteroids(asteroidPool, dt);
+  if (checkShipCollision(ship, asteroidPool)) {
     console.log("[COLLISION] ship hit asteroid");
   }
   renderer.render(scene, camera);
@@ -388,7 +474,7 @@ export function makeGridMaterial(THREE) {
   const uniforms = {
     uTime: { value: 0 },
     // Grid tuning
-    uGridScale: { value: 0.35 },     // lines per world unit (world-based)
+    uGridScale: { value: 0.35 },      // lines per world unit
     uLineWidth: { value: 1.25 },
     uSoftening: { value: 8.0 },
     uDepth: { value: 22.0 },
@@ -412,22 +498,55 @@ export function makeGridMaterial(THREE) {
       uniform float uPlanetMass[${MAX_PLANETS}];
       varying vec2 vWorldXZ;
       varying float vWell;
+      // --- Noise Functions for Terrain ---
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+      }
+      // Simple value noise
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        // Hermite smoothing
+        f = f * f * (3.0 - 2.0 * f);
+        float a = hash(i + vec2(0.0, 0.0));
+        float b = hash(i + vec2(1.0, 0.0));
+        float c = hash(i + vec2(0.0, 1.0));
+        float d = hash(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+      }
+      // Fractal Brownian Motion (Terrain layering)
+      float fbm(vec2 p) {
+        float total = 0.0;
+        float amp = 1.0;
+        float freq = 0.1;
+        // 3 Octaves
+        for(int i = 0; i < 3; i++) {
+            total += noise(p * freq) * amp;
+            freq *= 2.0;
+            amp *= 0.5;
+        }
+        return total;
+      }
       float well(vec2 d, float m) {
         return m / (dot(d,d) + uSoftening);
       }
       void main() {
         vec3 worldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-        // Wells in WORLD coordinates
+        // 1. Gravity Wells
         float w = 0.0;
         for (int i = 0; i < ${MAX_PLANETS}; i++) {
           if (i >= uPlanetCount) break;
           w += well(worldPos.xz - uPlanetPos[i].xz, uPlanetMass[i]);
         }
-        // Displace DOWN in local space, but amount from WORLD wells
+        // 2. Terrain Noise (Static in World Space)
+        // Adjust frequency (0.15) for hill size and amplitude (4.0) for height
+        float terrain = fbm(worldPos.xz * 0.15) * 4.0;
+        // Apply Displacements
         vec3 p = position;
+        // Push down for gravity, push up/down for terrain
         p.y -= uDepth * w;
-        // Subtle ripple (also in world coords)
-        p.y += 0.10 * sin(uTime + worldPos.x * 0.08) * cos(uTime + worldPos.z * 0.07);
+        p.y += terrain;
+        // Pass to fragment
         vWorldXZ = worldPos.xz;
         vWell = w;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
@@ -484,40 +603,21 @@ export function makeGridMaterial(THREE) {
 
 [-] This file: static/js/blackhole/three/planets.js | Contents:
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-import { rand } from "../shared/math.js";
-export function spawnPlanets(scene, uniforms) {
-  const planets = [];
-  const anchors = [
-    [-35, 22],
-    [22, 20],
-    [-18, -18],
-    [0, 0],
-    [36, -20],
-    [-38, -26],
-    [10, 30],
-  ];
-  anchors.forEach(([x, z], i) => {
-    const isBlackHole = i === 3;
-    const r = isBlackHole ? rand(1.3, 2.0) : rand(0.9, 2.4);
-    const mass = r * r * (isBlackHole ? 18 : 3);
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(r, 24, 18),
-      new THREE.MeshStandardMaterial({
-        color: isBlackHole ? 0x050508 : new THREE.Color().setHSL(Math.random(), 0.6, 0.55),
-        roughness: isBlackHole ? 0.25 : 0.55,
-        metalness: 0.0,
-      })
-    );
-    mesh.position.set(x + rand(-2, 2), rand(3, 6), z + rand(-2, 2));
-    scene.add(mesh);
-    planets.push({ mesh, mass, isBlackHole });
-  });
-  uniforms.uPlanetCount.value = planets.length;
-  planets.forEach((p, i) => {
-    uniforms.uPlanetPos.value[i].copy(p.mesh.position);
-    uniforms.uPlanetMass.value[i] = p.mass;
-  });
-  return planets;
+// Pure factory: No scene adding, just mesh creation
+export function createPlanetMesh(data) {
+  const isBlackHole = data.type === "blackhole";
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(data.r, 24, 18),
+    new THREE.MeshStandardMaterial({
+      color: isBlackHole
+        ? 0x050508
+        : new THREE.Color().setHSL(data.colorHue, 0.6, 0.55),
+      roughness: isBlackHole ? 0.25 : 0.55,
+      metalness: 0.0,
+      emissive: isBlackHole ? 0x110022 : 0x000000,
+    })
+  );
+  return mesh;
 }
 ================================================================================
 
@@ -528,6 +628,7 @@ export function createShip(scene) {
     new THREE.ConeGeometry(0.65, 1.6, 4, 1),
     new THREE.MeshStandardMaterial({ color: 0xffffff })
   );
+  // Rotate to point forward (-Z)
   mesh.rotation.y = Math.PI / 4;
   mesh.position.set(0, 3, 0);
   scene.add(mesh);
@@ -536,7 +637,7 @@ export function createShip(scene) {
     radius: 0.55,
     state: {
       y: 3,
-      speedPx: 280,
+      speedPx: 140, // Reduced from 280 for slower movement
       boxWidth: 360,
       boxHeight: 210,
       boxBottom: 70
@@ -564,6 +665,179 @@ export function initThree(canvas) {
 export function resetCameraSym(camera) {
   camera.position.set(0, 13.5, 27.5);
   camera.lookAt(0, 0, 0);
+}
+================================================================================
+
+[-] This file: static/js/blackhole/three/universe.js | Contents:
+// static/js/blackhole/three/universe.js
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+import { createPlanetMesh } from "./planets.js";
+import { rand } from "../shared/math.js";
+// Size of one "sector" in world units
+const SECTOR_SIZE = 250;
+const MAX_SHADER_PLANETS = 8;
+export class Universe {
+  constructor(scene, uniforms) {
+    this.scene = scene;
+    this.uniforms = uniforms;
+    // Key: "x:z" (sector coords), Value: Array of planet data objects
+    this.sectorData = new Map();
+    // Key: "x:z", Value: Array of THREE.Mesh objects
+    this.sectorMeshes = new Map();
+    // Set of keys currently queued for fetching/saving to prevent duplicate calls
+    this.pendingKeys = new Set();
+    this.currentSector = { x: 999999, z: 999999 };
+    this.shipPos = new THREE.Vector3();
+    // Public list of planets currently in the scene (sorted by distance)
+    this.activePlanets = [];
+  }
+  update(shipMesh) {
+    this.shipPos.copy(shipMesh.position);
+    // 1. Calculate current sector index based on ship position
+    const sx = Math.floor(shipMesh.position.x / SECTOR_SIZE);
+    const sz = Math.floor(shipMesh.position.z / SECTOR_SIZE);
+    // 2. If entered new sector, manage lifecycle (load new, unload old)
+    if (sx !== this.currentSector.x || sz !== this.currentSector.z) {
+      this.currentSector = { x: sx, z: sz };
+      this.handleSectorChange(sx, sz);
+    }
+    // 3. Update Shader Uniforms (pass closest 8 planets to the grid shader)
+    this.updateShaderGravity();
+  }
+  async handleSectorChange(cx, cz) {
+    // Determine the 3x3 grid of sectors around the ship to keep loaded
+    const keysNeeded = [];
+    for (let x = cx - 1; x <= cx + 1; x++) {
+      for (let z = cz - 1; z <= cz + 1; z++) {
+        keysNeeded.push(`${x}:${z}`);
+      }
+    }
+    // 1. Unload far sectors (cleanup memory)
+    for (const [key, meshes] of this.sectorMeshes) {
+      if (!keysNeeded.includes(key)) {
+        meshes.forEach(m => {
+            this.scene.remove(m);
+            if(m.geometry) m.geometry.dispose();
+            if(m.material) m.material.dispose();
+        });
+        this.sectorMeshes.delete(key);
+      }
+    }
+    // 2. Identify missing data
+    const keysToFetch = keysNeeded.filter(k => !this.sectorData.has(k) && !this.pendingKeys.has(k));
+    if (keysToFetch.length > 0) {
+      await this.fetchSectors(keysToFetch);
+    }
+    // 3. Instantiate meshes for data we have but haven't built yet
+    keysNeeded.forEach(key => {
+      if (this.sectorData.has(key) && !this.sectorMeshes.has(key)) {
+        this.buildSector(key);
+      }
+    });
+  }
+  async fetchSectors(keys) {
+    keys.forEach(k => this.pendingKeys.add(k));
+    try {
+      // Ask backend for these sectors
+      const params = new URLSearchParams({ keys: keys.join(",") });
+      const res = await fetch(`/api/universe/load?${params}`);
+      const data = await res.json();
+      const newSectors = {};
+      let hasNewData = false;
+      keys.forEach(key => {
+        if (data[key]) {
+          // Found in DB
+          this.sectorData.set(key, data[key]);
+        } else {
+          // Not found -> Procedurally Generate
+          const generated = this.generateSector(key);
+          this.sectorData.set(key, generated);
+          newSectors[key] = generated;
+          hasNewData = true;
+        }
+        this.pendingKeys.delete(key);
+      });
+      // Save newly generated sectors back to DB
+      if (hasNewData) {
+        fetch("/api/universe/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(newSectors)
+        }).catch(e => console.error("Save failed", e));
+      }
+    } catch (e) {
+      console.error("Universe fetch error:", e);
+      keys.forEach(k => this.pendingKeys.delete(k));
+    }
+  }
+  generateSector(key) {
+    const [sx, sz] = key.split(":").map(Number);
+    const planets = [];
+    // 10% chance for an empty void sector
+    const isVoid = Math.random() < 0.1;
+    if (isVoid) return [];
+    // 1-3 planets per sector
+    const count = Math.floor(rand(1, 4));
+    for (let i = 0; i < count; i++) {
+      // 5% chance for a black hole
+      const isBlackHole = Math.random() < 0.05;
+      const r = isBlackHole ? rand(1.5, 2.5) : rand(1.0, 3.0);
+      // Position relative to sector center
+      const lx = rand(-SECTOR_SIZE * 0.4, SECTOR_SIZE * 0.4);
+      const lz = rand(-SECTOR_SIZE * 0.4, SECTOR_SIZE * 0.4);
+      planets.push({
+        x: sx * SECTOR_SIZE + lx,
+        y: rand(0, 10), // variable height variation
+        z: sz * SECTOR_SIZE + lz,
+        r: r,
+        mass: r * r * (isBlackHole ? 20 : 3), // Black holes are much heavier
+        type: isBlackHole ? "blackhole" : "planet",
+        colorHue: Math.random()
+      });
+    }
+    return planets;
+  }
+  buildSector(key) {
+    const data = this.sectorData.get(key);
+    const meshes = [];
+    data.forEach(pData => {
+      const mesh = createPlanetMesh(pData);
+      mesh.position.set(pData.x, pData.y, pData.z);
+      this.scene.add(mesh);
+      // Link data for logic
+      mesh.userData = { ...pData };
+      meshes.push(mesh);
+    });
+    this.sectorMeshes.set(key, meshes);
+  }
+  updateShaderGravity() {
+    // Collect all active planets from loaded sectors
+    let allMeshes = [];
+    for (const meshes of this.sectorMeshes.values()) {
+      allMeshes = allMeshes.concat(meshes);
+    }
+    // Sort by distance to ship
+    allMeshes.sort((a, b) => {
+      const d1 = a.position.distanceToSquared(this.shipPos);
+      const d2 = b.position.distanceToSquared(this.shipPos);
+      return d1 - d2;
+    });
+    // Pick top 8 for the shader
+    const closest = allMeshes.slice(0, MAX_SHADER_PLANETS);
+    this.activePlanets = closest;
+    // Update Uniforms
+    this.uniforms.uPlanetCount.value = closest.length;
+    for (let i = 0; i < MAX_SHADER_PLANETS; i++) {
+      if (i < closest.length) {
+        this.uniforms.uPlanetPos.value[i].copy(closest[i].position);
+        this.uniforms.uPlanetMass.value[i] = closest[i].userData.mass;
+      } else {
+        // Clear unused slots
+        this.uniforms.uPlanetPos.value[i].set(99999, 99999, 99999);
+        this.uniforms.uPlanetMass.value[i] = 0;
+      }
+    }
+  }
 }
 ================================================================================
 
