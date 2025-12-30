@@ -12,23 +12,15 @@ import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.m
 // --- TOOLBOX GENERATOR ---
 function createToolbox(config) {
     const container = document.getElementById("toolbox-content");
-
-    // [SAFETY CHECK] Prevent crash if index.html is not updated
-    if (!container) {
-        console.warn("Toolbox container (#toolbox-content) not found in HTML. UI skipped.");
-        return;
-    }
-
+    if (!container) return; // Robustness check
     container.innerHTML = "";
 
-    // Recursive function to walk the JSON and make sliders
     function walk(obj, path = []) {
         for (const key in obj) {
             const val = obj[key];
             const currentPath = [...path, key];
 
             if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
-                // It's a folder/category
                 const group = document.createElement("div");
                 group.className = "control-group";
                 group.innerHTML = `<h3>${key}</h3>`;
@@ -36,11 +28,9 @@ function createToolbox(config) {
                 walk(val, currentPath);
             }
             else if (typeof val === 'number') {
-                // It's a number -> Make a slider
                 const row = document.createElement("div");
                 row.className = "slider-row";
 
-                // Determine ranges
                 let min = 0;
                 let max = val > 1 ? val * 4 : 2;
                 let step = val % 1 !== 0 || val < 5 ? 0.01 : 1;
@@ -59,7 +49,7 @@ function createToolbox(config) {
 
                 input.oninput = (e) => {
                     const v = parseFloat(e.target.value);
-                    obj[key] = v; // Update the live config object
+                    obj[key] = v;
                     const disp = document.getElementById(`disp-${currentPath.join('-')}`);
                     if(disp) disp.innerText = v.toFixed(2);
                 };
@@ -77,28 +67,24 @@ function createToolbox(config) {
 async function boot() {
   console.log("[BOOT] Fetching tuning...");
 
-  // Default fallback
   let config = {
       ship: {
-          baseSpeed: 50,
-          maxLateralSpeed: 300,
-          lateralAccel: 15.0,
-          lateralFriction: 8.0,
-          hoverOffset: 4.0,
+          baseSpeed: 70,
           brakePower: 80,
+          hoverOffset: 4.0,
+          maxLateralSpeed: 550,
+          lateralAccel: 25.0,
+          lateralFriction: 8.0,
           boxWidth: 360,
-          boundaryEdge: 350
+          boundaryEdge: 350,
+          boundaryStrength: 40.0
       },
-      universe: {
-          sectorSize: 300,
-          maxPlanetsPerSector: 2,
-          blackHoleChance: 0.1,
-          voidChance: 0.1
-      },
-      grid: {
-         softening: 8.0,
-         depth: 20.0
-      }
+      universe: { sectorSize: 300, voidChance: 0.1 },
+      grid: { softening: 25.0, depth: 3.0 },
+      // Defaults to ensure load even if fetch fails
+      planets: { minCount: 1, maxCount: 2, radiusMin: 12, radiusMax: 25, massMultiplier: 1.0 },
+      blackholes: { chance: 0.08, radiusMin: 20, radiusMax: 35, massMultiplier: 1.5 },
+      asteroids: { minSectorAsteroids: 3, maxSectorAsteroids: 8 }
   };
 
   try {
@@ -109,17 +95,19 @@ async function boot() {
   // 1. Setup Toolbox
   createToolbox(config);
 
-  // 2. Toggle Toolbox with '1'
+  // 2. Input Listeners
   window.addEventListener("keydown", (e) => {
+      // Toggle Toolbox
       if (e.key === '1') {
           const box = document.getElementById("toolbox");
-          if (box) {
-             box.style.display = box.style.display === "block" ? "none" : "block";
-          }
+          if (box) box.style.display = box.style.display === "block" ? "none" : "block";
+      }
+      // Restart Game on Enter
+      if (e.key === 'Enter' && isGameOver) {
+          window.location.reload();
       }
   });
 
-  // 3. Save Button Log
   const saveBtn = document.getElementById("saveBtn");
   if (saveBtn) {
       saveBtn.onclick = () => {
@@ -136,7 +124,6 @@ async function boot() {
   const ship = createShip(scene);
   const universe = new Universe(scene, uniforms, config);
 
-  // Sync ship box size with config if present
   if(config.ship.boxWidth) ship.state.boxWidth = config.ship.boxWidth;
 
   const phaserGame = initOverlay(ship);
@@ -150,7 +137,6 @@ async function boot() {
     const dt = Math.min(0.033, (t - last) / 1000);
     last = t;
 
-    // Live update box width from config sliders
     if(config.ship.boxWidth) ship.state.boxWidth = config.ship.boxWidth;
 
     uniforms.uTime.value += dt;
@@ -162,7 +148,7 @@ async function boot() {
 
     universe.update(ship.mesh, dt, globalTime);
 
-    // Collect threats
+    // Collision Checks
     const threats = [];
     universe.activePlanets.forEach(p => {
         if (p.userData.moons) threats.push(...p.userData.moons);

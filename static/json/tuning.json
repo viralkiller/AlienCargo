@@ -6,8 +6,8 @@
     "maxLateralSpeed": 550,
     "lateralAccel": 25.0,
     "lateralFriction": 8.0,
-    "boxWidth": 360,
-    "boundaryEdge": 350,
+    "boxWidth": 520,
+    "boundaryEdge": 510,
     "boundaryStrength": 40.0
   },
   "universe": {

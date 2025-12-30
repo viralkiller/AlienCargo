@@ -1,4 +1,3 @@
-// static/js/blackhole/three/asteroids.js
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 import { rand } from "../shared/math.js";
 
@@ -30,11 +29,14 @@ export function createFreeAsteroid(data) {
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(data.x, data.y, data.z);
 
-  // Velocity: Moving -Z (down screen) towards ship
+  // Velocity:
+  // Ship moves -Z (Negative).
+  // Asteroids spawning ahead (more Negative Z).
+  // To flow TOWARDS us, they must move +Z (Positive).
   const velocity = new THREE.Vector3(
-    rand(-5, 5), // Slight drift
+    rand(-5, 5), // Slight drift L/R
     0,
-    -rand(40, 80) // Fast downward speed
+    rand(20, 60) // [CHANGED] Positive Z = Moving towards camera/ship
   );
 
   return {
@@ -47,8 +49,6 @@ export function createFreeAsteroid(data) {
 }
 
 export function updateFreeAsteroids(universe, dt) {
-  // We iterate through all sector meshes to find asteroids
-  // This is slightly inefficient but safe for low object counts
   for (const meshes of universe.sectorMeshes.values()) {
     meshes.forEach(obj => {
       if (obj.userData.type === 'asteroid') {
@@ -58,9 +58,6 @@ export function updateFreeAsteroids(universe, dt) {
         obj.position.addScaledVector(d.velocity, dt);
         obj.rotation.x += d.rotAxis.x * d.rotSpeed * dt;
         obj.rotation.y += d.rotAxis.y * d.rotSpeed * dt;
-
-        // Sync visual mesh if wrapped
-        // (Not strictly needed if obj IS the mesh, which it is here)
       }
     });
   }
@@ -72,7 +69,6 @@ export function checkCollision(ship, objectList) {
     const shipR = ship.radius;
 
     for (const obj of objectList) {
-        // Handle both Moons (children of planets) and Free Asteroids (direct meshes)
         const mesh = obj.mesh || obj;
         const r = obj.r || (mesh.geometry.parameters.radius || 1.0);
 
