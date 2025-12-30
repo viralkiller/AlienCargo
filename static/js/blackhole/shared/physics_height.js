@@ -2,15 +2,15 @@ import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.m
 
 // Must match grid_shader.js consts
 const SOFTENING = 8.0;
-const DEPTH_STRENGTH = 22.0;
+const DEPTH_STRENGTH = 20.0;
 
-// [TUNING] Smoother, gentle rolling waves
-const NOISE_AMP = 3.0;    // Reduced from 5.0
-const NOISE_FREQ = 0.02;  // Reduced from 0.05 (Longer wavelength)
+// [TUNING] Slower, smoother liquid waves
+const NOISE_AMP = 4.0;
+const NOISE_FREQ = 0.015; // Lower frequency = Wider, gentler hills
+const WAVE_SPEED = 0.2;   // Slower animation
 
 // --- GLSL Hash / Noise Port ---
 function fract(x) { return x - Math.floor(x); }
-
 function hash(x, y) {
   const dot = x * 12.9898 + y * 78.233;
   const sin = Math.sin(dot);
@@ -36,13 +36,17 @@ function noise(x, y) {
          (c * (1 - ux) + d * ux) * uy;
 }
 
-function fbm(x, y) {
+function fbm(x, y, t) {
   let total = 0.0;
   let amp = 1.0;
   let freq = NOISE_FREQ;
+  // Animate the domain with time for liquid flow
+  const tx = t * WAVE_SPEED;
+  const ty = t * WAVE_SPEED * 0.5;
+
   // 3 Octaves
   for(let i = 0; i < 3; i++) {
-    total += noise(x * freq, y * freq) * amp;
+    total += noise(x * freq + tx, y * freq + ty) * amp;
     freq *= 2.0;
     amp *= 0.5;
   }
@@ -50,19 +54,20 @@ function fbm(x, y) {
 }
 
 // --- Main Surface Function ---
-export function getSurfaceHeight(x, z, planets) {
+export function getSurfaceHeight(x, z, t, planets) {
   // 1. Gravity Wells
   let w = 0.0;
   if (planets) {
     for (const p of planets) {
       const dx = x - p.position.x;
       const dz = z - p.position.z;
+      // Simple inverse square approximation for depth
       w += p.userData.mass / (dx * dx + dz * dz + SOFTENING);
     }
   }
 
-  // 2. Terrain Noise
-  const terrain = fbm(x, z) * NOISE_AMP;
+  // 2. Terrain Noise (Liquid)
+  const terrain = fbm(x, z, t || 0) * NOISE_AMP;
 
   // 3. Combine
   return terrain - (w * DEPTH_STRENGTH);

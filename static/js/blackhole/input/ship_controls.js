@@ -6,80 +6,77 @@ const ray = new THREE.Raycaster();
 const refPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const _hit = new THREE.Vector3();
 
-const DEFAULT_CONFIG = {
-  baseSpeed: 90,
-  brakePower: 150,
-  hoverOffset: 4.0,
-  maxLateralSpeed: 100
-};
-
-export function updateShip(ship, camera, renderer, dt, activePlanets, config) {
-  // Use config or fallbacks
-  const conf = config || DEFAULT_CONFIG;
-
+export function updateShip(ship, camera, renderer, dt, time, activePlanets, config) {
+  const conf = config; // Config is now live from sliders
   const w = renderer.domElement.clientWidth;
   const h = renderer.domElement.clientHeight;
 
-  // Center Screen
+  // Center Screen Reference
   const cx = w / 2;
   const by = h - ship.state.boxBottom;
 
   if (ship.state.cursorX === undefined) ship.state.cursorX = cx;
   if (ship.state.cursorY === undefined) ship.state.cursorY = by - ship.state.boxHeight * 0.35;
+  if (ship.state.velX === undefined) ship.state.velX = 0;
 
-  // --- SPEED CONTROL ---
-  let targetSpeed = conf.baseSpeed;
-
+  // --- 1. FORWARD MOVEMENT ---
+  let targetForward = conf.baseSpeed;
   if (input.keys.has("ArrowDown")) {
     ship.state.speedPx -= conf.brakePower * dt;
-    if (ship.state.speedPx < 10) ship.state.speedPx = 10;
+    if (ship.state.speedPx < 0) ship.state.speedPx = 0;
   } else {
-    ship.state.speedPx = targetSpeed;
+    const diff = targetForward - ship.state.speedPx;
+    ship.state.speedPx += diff * 2.0 * dt;
   }
 
-  // --- LATERAL CONTROLS ---
-  let dx = 0;
-  if (input.keys.has("ArrowLeft")) dx -= 1;
-  if (input.keys.has("ArrowRight")) dx += 1;
+  // --- 2. LATERAL MOVEMENT ---
+  let dirX = 0;
+  if (input.keys.has("ArrowLeft")) dirX -= 1;
+  if (input.keys.has("ArrowRight")) dirX += 1;
 
-  if (dx !== 0) {
-    const allowedWidth = ship.state.boxWidth * 0.5;
-    const halfW = allowedWidth / 2;
-    const distFromCenter = ship.state.cursorX - cx;
-    const distRatio = Math.min(1.0, Math.abs(distFromCenter) / halfW);
-    const movingOut = (dx < 0 && distFromCenter < 0) || (dx > 0 && distFromCenter > 0);
+  const targetVelX = dirX * conf.maxLateralSpeed;
+  const isAccelerating = (dirX !== 0 && Math.sign(dirX) === Math.sign(ship.state.velX));
+  const rate = isAccelerating ? conf.lateralAccel : conf.lateralFriction;
 
-    let lateralFactor = 0.5;
-    if (movingOut) {
-      const resistance = 1.0 - (distRatio * distRatio);
-      lateralFactor *= Math.max(0.01, resistance);
-    }
+  const alpha = 1.0 - Math.exp(-rate * dt);
+  ship.state.velX += (targetVelX - ship.state.velX) * alpha;
 
-    ship.state.cursorX += dx * conf.maxLateralSpeed * lateralFactor * dt;
+  // --- 3. BOUNDARY LOGIC (Red Box Clamp) ---
+  // The Red Box width is ship.state.boxWidth.
+  // We want strict clamping inside this box.
+  const halfBox = ship.state.boxWidth / 2;
+  const minX = cx - halfBox;
+  const maxX = cx + halfBox;
 
-    // Clamp X
-    const minX = cx - halfW;
-    const maxX = cx + halfW;
-    ship.state.cursorX = Math.max(minX, Math.min(maxX, ship.state.cursorX));
+  // Apply Velocity
+  ship.state.cursorX += ship.state.velX * dt;
+
+  // STRICT CLAMP: If we hit the red box walls, stop dead (or bounce slightly).
+  if (ship.state.cursorX < minX) {
+      ship.state.cursorX = minX;
+      ship.state.velX = 0; // Stop instantly at wall
+  }
+  if (ship.state.cursorX > maxX) {
+      ship.state.cursorX = maxX;
+      ship.state.velX = 0; // Stop instantly at wall
   }
 
-  // Clamp Y
+  // Vertical Clamp (Stay inside box vertically too)
   const minY = by - ship.state.boxHeight;
   const maxY = by;
   ship.state.cursorY = Math.max(minY, Math.min(maxY, ship.state.cursorY));
 
-  // --- RAYCAST & POSITION UPDATE ---
-  ray.setFromCamera(
-    new THREE.Vector2((ship.state.cursorX / w) * 2 - 1, -(ship.state.cursorY / h) * 2 + 1),
-    camera
-  );
+  // --- 4. RAYCAST ---
+  const ndcX = Math.max(-1, Math.min(1, (ship.state.cursorX / w) * 2 - 1));
+  const ndcY = -(ship.state.cursorY / h) * 2 + 1;
+
+  ray.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
   refPlane.constant = 0;
 
   if (ray.ray.intersectPlane(refPlane, _hit)) {
     const targetX = _hit.x;
     const currentZ = ship.mesh.position.z;
-
-    const h1 = getSurfaceHeight(targetX, currentZ, activePlanets);
+    const h1 = getSurfaceHeight(targetX, currentZ, time, activePlanets);
     const newZ = currentZ - ship.state.speedPx * dt;
 
     ship.mesh.position.set(targetX, h1 + conf.hoverOffset, newZ);

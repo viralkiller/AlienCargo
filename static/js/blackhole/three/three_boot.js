@@ -7,9 +7,14 @@ export function initThree(canvas) {
 
   const scene = new THREE.Scene();
 
-  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 5000);
-  camera.rotation.order = "YXZ";
+  // [NEW] Fog for smooth fade in.
+  // Color 0x000000 (Black).
+  // Start: 120 (Just beyond the ship), End: 450 (Fade out completely)
+  scene.fog = new THREE.Fog(0x000000, 120, 450);
 
+  // [NEW] Increased Far Plane to 6000 to prevent clipping before fog ends
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 6000);
+  camera.rotation.order = "YXZ";
   resetCameraSym(camera);
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0x101018, 0.8));

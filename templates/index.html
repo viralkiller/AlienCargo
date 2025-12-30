@@ -1,45 +1,47 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Black Hole – Hybrid 2.5D Demo</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="data:,">
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: #000;
-      font-family: system-ui, Arial, sans-serif;
-    }
-    #wrap {
-      position: relative;
-      width: 100%;
-      height: 100%;
-    }
-    canvas {
-      position: absolute;
-      inset: 0;
-      width: 100% !important;
-      height: 100% !important;
-      display: block;
-    }
-    #threeCanvas { z-index: 0; }
-    #phaserMount canvas {
-      z-index: 1;
-      background: transparent !important;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alien Cargo</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: monospace; }
+        canvas { display: block; }
+        #phaserMount { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+
+        /* THE TOOLBOX (Hidden by default) */
+        #toolbox {
+            display: none; /* Toggled by '1' */
+            position: absolute;
+            top: 10px; right: 10px;
+            width: 300px;
+            max-height: 90vh;
+            background: rgba(0, 10, 20, 0.85);
+            border: 1px solid #446688;
+            color: #00ffcc;
+            padding: 15px;
+            overflow-y: auto;
+            z-index: 100;
+            backdrop-filter: blur(4px);
+        }
+        #toolbox h2 { margin-top: 0; font-size: 16px; border-bottom: 1px solid #446688; padding-bottom: 5px; }
+        .control-group { margin-bottom: 15px; border-bottom: 1px dashed #334455; padding-bottom: 10px; }
+        .control-group h3 { margin: 0 0 5px 0; font-size: 14px; color: #88aacc; text-transform: uppercase; }
+        .slider-row { display: flex; flex-direction: column; margin-bottom: 8px; }
+        .slider-label { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; }
+        input[type=range] { width: 100%; cursor: pointer; }
+    </style>
 </head>
 <body>
-  <div id="wrap">
-    <canvas id="threeCanvas"></canvas>
     <div id="phaserMount"></div>
-  </div>
-  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
-  <script type="module" src="/static/js/blackhole/main.js"></script>
+    <canvas id="threeCanvas"></canvas>
+
+    <div id="toolbox">
+        <h2>System Tuning (Press '1' to Close)</h2>
+        <div id="toolbox-content"></div>
+        <button id="saveBtn" style="width:100%; margin-top:10px; background:#004444; color:#fff; border:none; padding:5px; cursor:pointer;">Log Config to Console</button>
+    </div>
+
+    <script type="module" src="/static/js/blackhole/main.js"></script>
 </body>
 </html>

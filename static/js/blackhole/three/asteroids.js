@@ -1,126 +1,94 @@
+// static/js/blackhole/three/asteroids.js
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 import { rand } from "../shared/math.js";
 
-// Helper to noise-deform a sphere
 function ruggedizeGeometry(geometry, amount) {
   const posAttribute = geometry.attributes.position;
   const vertex = new THREE.Vector3();
-
   for (let i = 0; i < posAttribute.count; i++) {
     vertex.fromBufferAttribute(posAttribute, i);
-    // Displace along normal (which is just the normalized position for a sphere)
-    // We use a simple random jitter here. For smoother rocks, we'd use Perlin noise,
-    // but random jitter is usually enough for small asteroids.
     const deform = 1.0 + (Math.random() - 0.5) * amount;
     vertex.multiplyScalar(deform);
     posAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
   }
-  // Re-compute normals so lighting looks correct on the jagged surface
   geometry.computeVertexNormals();
   return geometry;
 }
 
-export function createAsteroidSystem(planetMesh, config) {
-  // Config defaults
-  const conf = config || {
-    minCount: 4, maxCount: 8,
-    minSize: 0.3, maxSize: 0.7,
-    orbitDistanceMin: 1.5, orbitDistanceMax: 4.0,
-    orbitSpeedMin: 0.2, orbitSpeedMax: 0.8,
-    ruggedness: 0.2
-  };
+export function createFreeAsteroid(data) {
+  const r = data.r || rand(0.5, 1.5);
 
-  const asteroids = [];
-  const count = Math.floor(rand(conf.minCount, conf.maxCount));
+  const geo = new THREE.DodecahedronGeometry(r, 0); // Low poly look
+  ruggedizeGeometry(geo, 0.4);
 
-  // 1. Define the Orbit Ring (A spline concept)
-  // We want a ring around the equator (XZ plane relative to planet).
-  // We don't need a visible line, just the math.
-
-  for (let i = 0; i < count; i++) {
-    // Randomize size
-    const r = rand(conf.minSize, conf.maxSize);
-
-    // Create Geometry
-    let geo = new THREE.SphereGeometry(r, 7, 6); // Low poly for jagged look
-    ruggedizeGeometry(geo, conf.ruggedness);
-
-    const mat = new THREE.MeshStandardMaterial({
-        color: 0x888888,
-        roughness: 0.9,
-        flatShading: true // Low poly look
-    });
-
-    const mesh = new THREE.Mesh(geo, mat);
-
-    // 2. Setup Orbit Logic
-    // Distance from planet center
-    const planetRadius = planetMesh.geometry.parameters.radius;
-    const dist = planetRadius + rand(conf.orbitDistanceMin, conf.orbitDistanceMax);
-
-    // Start Angle
-    const angle = Math.random() * Math.PI * 2;
-
-    // Orbit Speed (Radians per second)
-    const speed = rand(conf.orbitSpeedMin, conf.orbitSpeedMax) * (Math.random() < 0.5 ? 1 : -1);
-
-    // Initial position (Local to planet)
-    mesh.position.set(Math.cos(angle) * dist, rand(-0.5, 0.5), Math.sin(angle) * dist);
-
-    // Add to Planet (So it moves with it)
-    planetMesh.add(mesh);
-
-    asteroids.push({
-      mesh,
-      orbitRadius: dist,
-      angle: angle,
-      speed: speed,
-      rotationAxis: new THREE.Vector3(Math.random(), Math.random(), Math.random()).normalize(),
-      rotationSpeed: rand(0.5, conf.selfRotationSpeed),
-      r: r // Collision radius
-    });
-  }
-
-  return asteroids;
-}
-
-export function updateAsteroids(planetMesh, dt) {
-  // We stored the asteroid data on the planetMesh.userData for convenience
-  const data = planetMesh.userData.asteroids;
-  if (!data) return;
-
-  data.forEach(a => {
-    // 1. Orbit Update (Smooth circular motion)
-    a.angle += a.speed * dt;
-
-    // Update local position relative to planet
-    // This creates a perfect ring orbit that follows the planet smoothly
-    a.mesh.position.x = Math.cos(a.angle) * a.orbitRadius;
-    a.mesh.position.z = Math.sin(a.angle) * a.orbitRadius;
-
-    // 2. Self Rotation (Tumbling)
-    a.mesh.rotateOnAxis(a.rotationAxis, a.rotationSpeed * dt);
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x886655, // Brownish rock
+    roughness: 0.9,
+    flatShading: true
   });
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(data.x, data.y, data.z);
+
+  // Velocity: Moving -Z (down screen) towards ship
+  const velocity = new THREE.Vector3(
+    rand(-5, 5), // Slight drift
+    0,
+    -rand(40, 80) // Fast downward speed
+  );
+
+  return {
+    mesh,
+    r: r,
+    velocity: velocity,
+    rotAxis: new THREE.Vector3(Math.random(), Math.random(), Math.random()).normalize(),
+    rotSpeed: rand(1, 4)
+  };
 }
 
-// Global collision check (World Space)
-export function checkShipCollision(ship, allAsteroids) {
-  const shipPos = ship.mesh.position;
-  const worldPos = new THREE.Vector3();
+export function updateFreeAsteroids(universe, dt) {
+  // We iterate through all sector meshes to find asteroids
+  // This is slightly inefficient but safe for low object counts
+  for (const meshes of universe.sectorMeshes.values()) {
+    meshes.forEach(obj => {
+      if (obj.userData.type === 'asteroid') {
+        const d = obj.userData.physics;
 
-  for (const a of allAsteroids) {
-    // Get asteroid real world position
-    a.mesh.getWorldPosition(worldPos);
+        // Move Physics
+        obj.position.addScaledVector(d.velocity, dt);
+        obj.rotation.x += d.rotAxis.x * d.rotSpeed * dt;
+        obj.rotation.y += d.rotAxis.y * d.rotSpeed * dt;
 
-    const dx = worldPos.x - shipPos.x;
-    const dz = worldPos.z - shipPos.z;
-    // Simple sphere collision
-    const rr = (ship.radius + a.r) * (ship.radius + a.r);
-
-    // Optimistic height check first
-    if (Math.abs(worldPos.y - shipPos.y) < 3.0) {
-        if (dx * dx + dz * dz < rr) return true;
-    }
+        // Sync visual mesh if wrapped
+        // (Not strictly needed if obj IS the mesh, which it is here)
+      }
+    });
   }
-  return false;
+}
+
+export function checkCollision(ship, objectList) {
+    const shipPos = ship.mesh.position;
+    const worldPos = new THREE.Vector3();
+    const shipR = ship.radius;
+
+    for (const obj of objectList) {
+        // Handle both Moons (children of planets) and Free Asteroids (direct meshes)
+        const mesh = obj.mesh || obj;
+        const r = obj.r || (mesh.geometry.parameters.radius || 1.0);
+
+        mesh.getWorldPosition(worldPos);
+
+        // Height check optimization
+        if (Math.abs(worldPos.y - shipPos.y) > 3.5) continue;
+
+        const dx = worldPos.x - shipPos.x;
+        const dz = worldPos.z - shipPos.z;
+        const distSq = dx*dx + dz*dz;
+
+        const minDist = shipR + r;
+        if (distSq < minDist * minDist) {
+            return true;
+        }
+    }
+    return false;
 }

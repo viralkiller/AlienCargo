@@ -1,38 +1,50 @@
 {
   "ship": {
-    "baseSpeed": 90,
-    "brakePower": 150,
+    "baseSpeed": 70,
+    "brakePower": 80,
     "hoverOffset": 4.0,
-    "maxLateralSpeed": 100
+    "maxLateralSpeed": 550,
+    "lateralAccel": 25.0,
+    "lateralFriction": 8.0,
+    "boxWidth": 360,
+    "boundaryEdge": 350,
+    "boundaryStrength": 40.0
   },
   "universe": {
-    "sectorSize": 500,
-    "voidChance": 0.90,
-    "maxPlanetsPerSector": 1,
-    "blackHoleChance": 0.01,
-    "planetScaleMin": 10,
-    "planetScaleMax": 30,
-    "blackHoleScaleMin": 12.2,
-    "blackHoleScaleMax": 13.8,
-    "planetMassMultiplier": 0.05,
-    "blackHoleMassMultiplier": 30.0
+    "sectorSize": 300,
+    "voidChance": 0.1
+  },
+  "planets": {
+    "minCount": 1,
+    "maxCount": 2,
+    "radiusMin": 12.0,
+    "radiusMax": 25.0,
+    "yVariation": 0.0,
+    "massMultiplier": 1.0
+  },
+  "blackholes": {
+    "chance": 0.08,
+    "radiusMin": 20.0,
+    "radiusMax": 35.0,
+    "massMultiplier": 1.5
+  },
+  "moons": {
+    "minCount": 1,
+    "maxCount": 4,
+    "minSize": 0.4,
+    "maxSize": 1.0,
+    "orbitDistanceMin": 1.5,
+    "orbitDistanceMax": 3.5,
+    "orbitSpeedMin": 0.5,
+    "orbitSpeedMax": 1.5,
+    "ruggedness": 0.3
   },
   "asteroids": {
-    "minCount": 4,
-    "maxCount": 8,
-    "minSize": 0.3,
-    "maxSize": 0.7,
-    "orbitDistanceMin": 1.5,
-    "orbitDistanceMax": 4.0,
-    "orbitSpeedMin": 0.2,
-    "orbitSpeedMax": 0.8,
-    "selfRotationSpeed": 1.5,
-    "ruggedness": 0.15
+    "minSectorAsteroids": 3,
+    "maxSectorAsteroids": 8
   },
   "grid": {
-    "noiseAmp": 3.0,
-    "noiseFreq": 0.02,
-    "flowSpeedMult": 15.0,
-    "flowStrengthMult": 15.0
+    "softening": 25.0,
+    "depth": 3.0
   }
 }

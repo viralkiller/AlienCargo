@@ -1,4 +1,4 @@
-Aggregated on: 2025-12-29 15:53:25
+Aggregated on: 2025-12-30 10:33:21
 ================================================================================
 Project Directory Tree:
 /
@@ -6,7 +6,6 @@ Project Directory Tree:
 │   └── universe.json
 ├── static
 │   ├── images
-│   │   └── logo.png
 │   ├── js
 │   │   └── blackhole
 │   │       ├── input
@@ -17,6 +16,7 @@ Project Directory Tree:
 │   │       │   └── phaser_overlay.js
 │   │       ├── shared
 │   │       │   ├── math.js
+│   │       │   ├── physics_height.js
 │   │       │   └── resize.js
 │   │       ├── three
 │   │       │   ├── asteroids.js
@@ -27,9 +27,8 @@ Project Directory Tree:
 │   │       │   ├── three_boot.js
 │   │       │   └── universe.js
 │   │       └── main.js
-│   ├── panoramas
-│   └── sounds
-│       └── bass_rumble.mp3
+│   └── json
+│       └── tuning.json
 ├── templates
 │   └── index.html
 ├── .bashrc
@@ -40,100 +39,47 @@ Project Directory Tree:
 ├── .vimrc
 ├── _Review_Functions.py
 ├── flask_app.py
+├── general.md
 ├── project_directory_full_code_1.txt
 └── README.txt
 
-12 directories, 28 files
+11 directories, 29 files
 ================================================================================
 
-[-] This file: .pythonstartup.py | Contents:
-import rlcompleter
-import readline
-readline.parse_and_bind("tab: complete")
-================================================================================
-
-[-] This file: flask_app.py | Contents:
-# flask_app.py
-import logging
-import json
-import os
-from pathlib import Path
-from flask import Flask, render_template, request, jsonify
-# -----------------------------
-# Config
-# -----------------------------
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-UNIVERSE_FILE = DATA_DIR / "universe.json"
-# Ensure data directory exists
-os.makedirs(DATA_DIR, exist_ok=True)
-# -----------------------------
-# Logging
-# -----------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-)
-logger = logging.getLogger("blackhole")
-# -----------------------------
-# App setup
-# -----------------------------
-app = Flask(__name__)
-# -----------------------------
-# Data Persistence Helpers
-# -----------------------------
-def load_universe_data():
-    """Loads the entire universe dictionary from JSON."""
-    if not UNIVERSE_FILE.exists():
-        return {}
-    try:
-        with open(UNIVERSE_FILE, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Failed to load universe data: {e}")
-        return {}
-def save_universe_data(new_data):
-    """Merges new sector data into the existing JSON file."""
-    try:
-        # Load existing first to merge
-        current = load_universe_data()
-        current.update(new_data)
-        with open(UNIVERSE_FILE, "w") as f:
-            json.dump(current, f, indent=2)
-    except Exception as e:
-        logger.error(f"Failed to save universe data: {e}")
-# -----------------------------
-# Routes
-# -----------------------------
-@app.get("/")
-def index():
-    logger.info("UI: render index")
-    return render_template("index.html")
-@app.get("/api/universe/load")
-def load_sectors():
-    """
-    Returns specific sectors requested via query param ?keys=1:2,1:3
-    """
-    keys = request.args.get("keys")
-    all_data = load_universe_data()
-    if not keys:
-        # If no keys specified, return everything (useful for debug, risky if huge)
-        return jsonify(all_data)
-    requested_keys = keys.split(",")
-    result = {k: all_data[k] for k in requested_keys if k in all_data}
-    return jsonify(result)
-@app.post("/api/universe/save")
-def save_sector():
-    """Receives a dictionary of sectors -> planet data and saves them."""
-    data = request.json
-    save_universe_data(data)
-    return jsonify({"status": "ok"})
-# -----------------------------
-# Local dev entrypoint
-# -----------------------------
-if __name__ == "__main__":
-    logger.info("Starting dev server at http://127.0.0.1:5000")
-    app.run(debug=True, host="127.0.0.1", port=5000)
+[-] This file: general.md | Contents:
+Alien Cargo is a vertical scrolling space shooter (traveling 'up' along the screen).
+The ship points North (bottom to top).
+View: Top-down with a slight perspective angle to create a 2.5D effect. Think Outrun the racing game perspective, but with a spaceship.
+### Coordinates
+- **+Z**: Moving Forward (Up the screen)
+- **-Z**: Moving Backward (Down the screen)
+- **+Y**: Altitude (Distance above the grid surface)
+- **-Y**: Descent (Closer to the grid surface)
+- **+X/-X**: Lateral movement (Right/Left)
+### The Infinite Corridor (Scrolling System)
+Since movement is primarily forward (+Z), the world is generated as an **infinite 3-lane corridor**.
+- **Lanes**: The universe is strictly tiled into 3 horizontal sectors relative to the ship: Left (-1), Center (0), and Right (1).
+- **Generation**: As the ship moves forward in Z, we spawn new rows of these 3 sectors ahead.
+- **Garbage Collection**: Strictly cull sectors that fall behind the ship (negative Z relative to ship) to keep memory usage constant.
+- **Boundaries**: The ship is confined to this corridor not by hard walls, but by an **exponential repulsion field** (an "invisible magnetic wall") that pushes back harder the further the ship strays from the center.
+### The "Liquid" Spacetime Grid
+The spacetime grid behaves less like a rigid wireframe and more like a **viscous liquid ocean**.
+- **Flow**: The grid texture flows continuously like a river.
+- **Gravity Wells**: Planets and Black Holes create deep depressions (dips) in the grid.
+- **Whirlpools**: Gravity wells exert a tangential force, creating a **whirlpool effect** where the grid visually spins and flows into the "sink" of the planet/black hole.
+- **Waves**: The grid surface undulates with gentle, rolling noise-based waves, and the ship "bobs" on these waves physically.
+### Celestial Objects
+- **Scale**: Objects are **massive**.
+    - **Black Holes**: Huge, screen-spanning whirlpools (Radius ~20-30). They dominate the view and should be spawned slightly off-center so the player can just barely navigate around their event horizon.
+    - **Planets**: Large obstacles (Radius ~12-25) that require significant lateral movement to dodge.
+- **Satellites**: Planets may have **1-3 orbiting asteroids/moons**. These orbit in a ring around the planet's equator.
+- **Asteroids**: Can be smooth or jagged (noise deformed). They orbit locally around planets rather than floating freely in deep space.
+### Ship Physics
+- **Movement**: Physics-based, using velocity, acceleration, and friction (inertia).
+- **Feel**: The ship should feel responsive but have weight. It shouldn't stop instantly (drift).
+- **Controls**:
+    - **Forward**: Automatic cruise speed with "brake" (Arrow Down) to slow down.
+    - **Lateral**: Fast, snappy acceleration (Arrow Left/Right) to dodge the massive obstacles.
 ================================================================================
 
 [-] This file: static/js/blackhole/input/camera_controls.js | Contents:
@@ -146,29 +92,20 @@ export function updateChaseCamera(camera, ship, dt) {
   const shipYaw = ship.mesh.rotation.y - Math.PI / 4;
   const shipForward = _forward.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), shipYaw);
   // Camera offset behind/above ship in WORLD space
-  const camHeight = 13.5;
-  const camBack = 27.5;
-  // Keep symmetrical: behind is +Z when ship forward is -Z
+  // [TUNING] Pulled back and up for a wider view
+  const camHeight = 18.0; // Was 13.5
+  const camBack = 35.0;   // Was 27.5
   _desiredPos.set(
     ship.mesh.position.x,
     ship.mesh.position.y + camHeight,
     ship.mesh.position.z + camBack
   );
-  // Look ahead so ship sits lower
-  // FIX: Increased lookAhead from 12.0 to 100.0.
-  // This tilts the camera up, pushing the ship's visual position down to the
-  // bottom of the screen where the control box is located.
-  // This aligns the "neutral" cursor position with the ship's actual position,
-  // preventing the infinite backward drift loop.
   const lookAhead = 100.0;
   _lookAt.copy(ship.mesh.position).addScaledVector(shipForward, lookAhead);
-  // Smooth follow (stable + nice)
-  const follow = 1.0 - Math.pow(0.001, dt); // dt-correct smoothing
+  // Smooth follow
+  const follow = 1.0 - Math.pow(0.001, dt);
   camera.position.lerp(_desiredPos, follow);
   camera.lookAt(_lookAt);
-  // Debug log occasionally (not every frame)
-  // You can uncomment if needed:
-  // if (Math.random() < 0.01) console.log("[CAM][CHASE]", camera.position.toArray().map(n=>n.toFixed(2)).join(","));
 }
 ================================================================================
 
@@ -186,69 +123,88 @@ window.addEventListener("keyup", e => input.keys.delete(e.code));
 [-] This file: static/js/blackhole/input/ship_controls.js | Contents:
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 import { input } from "./input_state.js";
+import { getSurfaceHeight } from "../shared/physics_height.js";
 const ray = new THREE.Raycaster();
-const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const refPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const _hit = new THREE.Vector3();
-export function updateShip(ship, camera, renderer, dt) {
+// Fallback defaults
+const DEFAULT_CONFIG = {
+  baseSpeed: 50,
+  brakePower: 80,
+  hoverOffset: 4.0,
+  maxLateralSpeed: 300,
+  lateralAccel: 10.0,
+  lateralFriction: 5.0,
+  boundaryEdge: 550,      // Distance from center where repulsion starts
+  boundaryStrength: 15.0  // Multiplier for the exponential force
+};
+export function updateShip(ship, camera, renderer, dt, time, activePlanets, config) {
+  const conf = config || DEFAULT_CONFIG;
   const w = renderer.domElement.clientWidth;
   const h = renderer.domElement.clientHeight;
-  // Bottom control box anchor (screen space)
+  // Center Screen Reference
   const cx = w / 2;
   const by = h - ship.state.boxBottom;
-  // Persistent cursor inside box (screen space)
   if (ship.state.cursorX === undefined) ship.state.cursorX = cx;
   if (ship.state.cursorY === undefined) ship.state.cursorY = by - ship.state.boxHeight * 0.35;
-  let dx = 0;
-  let dy = 0;
-  if (input.keys.has("ArrowLeft")) dx -= 1;
-  if (input.keys.has("ArrowRight")) dx += 1;
-  // IMPORTANT: Up should move the cursor UP (smaller sy) => forward in your chase view
-  if (input.keys.has("ArrowUp")) dy -= 1;
-  if (input.keys.has("ArrowDown")) dy += 1;
-  if (!dx && !dy) return;
-  // Normalize diagonal
-  const len = Math.hypot(dx, dy) || 1;
-  dx /= len;
-  dy /= len;
-  // Move cursor inside the box (accumulative!)
-  const pxPerSec = ship.state.speedPx; // treat speedPx as cursor speed too
-  ship.state.cursorX += dx * pxPerSec * dt;
-  ship.state.cursorY += dy * pxPerSec * dt;
-  // Clamp cursor to the red box
-  const minX = cx - ship.state.boxWidth / 2;
-  const maxX = cx + ship.state.boxWidth / 2;
+  if (ship.state.velX === undefined) ship.state.velX = 0;
+  // --- 1. FORWARD MOVEMENT ---
+  let targetForward = conf.baseSpeed;
+  if (input.keys.has("ArrowDown")) {
+    ship.state.speedPx -= conf.brakePower * dt;
+    if (ship.state.speedPx < 0) ship.state.speedPx = 0;
+  } else {
+    const diff = targetForward - ship.state.speedPx;
+    ship.state.speedPx += diff * 2.0 * dt;
+  }
+  // --- 2. LATERAL MOVEMENT ---
+  let dirX = 0;
+  if (input.keys.has("ArrowLeft")) dirX -= 1;
+  if (input.keys.has("ArrowRight")) dirX += 1;
+  const targetVelX = dirX * conf.maxLateralSpeed;
+  const isAccelerating = (dirX !== 0 && Math.sign(dirX) === Math.sign(ship.state.velX));
+  const rate = isAccelerating ? conf.lateralAccel : conf.lateralFriction;
+  const alpha = 1.0 - Math.exp(-rate * dt);
+  ship.state.velX += (targetVelX - ship.state.velX) * alpha;
+  // --- 3. BOUNDARY REPULSION FORCE (The "Invisible Wall") ---
+  // The corridor is centered at World X = 0.
+  // ship.state.cursorX is in SCREEN pixels relative to center.
+  // We need to check the actual world position for the logic, or map cursor to world.
+  // For simplicity in this demo, 'cursorX' is the driver.
+  // Let's assume Screen Center (cx) = World X 0.
+  const distFromCenter = ship.state.cursorX - cx;
+  const absDist = Math.abs(distFromCenter);
+  const boundaryEdge = conf.boundaryEdge || 550;
+  // If we are past the safe edge
+  if (absDist > boundaryEdge) {
+    const penetration = absDist - boundaryEdge;
+    // Exponential force: Increases rapidly the further you go
+    const repulsion = Math.exp(penetration * 0.02) * (conf.boundaryStrength || 15.0);
+    // Direction is opposite to current side
+    const forceDir = (distFromCenter > 0) ? -1 : 1;
+    // Apply to velocity
+    ship.state.velX += repulsion * forceDir * dt;
+  }
+  // Apply Velocity to Position
+  ship.state.cursorX += ship.state.velX * dt;
+  // Vertical Clamp
   const minY = by - ship.state.boxHeight;
   const maxY = by;
-  ship.state.cursorX = Math.max(minX, Math.min(maxX, ship.state.cursorX));
   ship.state.cursorY = Math.max(minY, Math.min(maxY, ship.state.cursorY));
-  // Also clamp to window bounds (safety)
-  ship.state.cursorX = Math.max(0, Math.min(w, ship.state.cursorX));
-  ship.state.cursorY = Math.max(0, Math.min(h, ship.state.cursorY));
-  // Debug (throttle a bit)
-  if (Math.random() < 0.05) {
-    console.log("[SHIP][CURSOR]", {
-      dx: dx.toFixed(2),
-      dy: dy.toFixed(2),
-      cursorX: ship.state.cursorX.toFixed(1),
-      cursorY: ship.state.cursorY.toFixed(1),
-    });
-  }
-  // Screen -> ray -> plane hit
+  // --- 4. RAYCAST & UPDATE ---
   ray.setFromCamera(
     new THREE.Vector2((ship.state.cursorX / w) * 2 - 1, -(ship.state.cursorY / h) * 2 + 1),
     camera
   );
-  plane.constant = -ship.state.y;
-  if (ray.ray.intersectPlane(plane, _hit)) {
-    ship.mesh.position.set(_hit.x, ship.state.y, _hit.z);
-    if (Math.random() < 0.03) {
-      console.log("[SHIP][HIT]", {
-        x: _hit.x.toFixed(2),
-        z: _hit.z.toFixed(2),
-      });
-    }
-  } else {
-    console.warn("[SHIP] ray-plane miss");
+  refPlane.constant = 0;
+  if (ray.ray.intersectPlane(refPlane, _hit)) {
+    const targetX = _hit.x;
+    const currentZ = ship.mesh.position.z;
+    // Physics
+    const h1 = getSurfaceHeight(targetX, currentZ, time, activePlanets);
+    const newZ = currentZ - ship.state.speedPx * dt;
+    ship.mesh.position.set(targetX, h1 + conf.hoverOffset, newZ);
+    ship.state.y = h1 + conf.hoverOffset;
   }
 }
 ================================================================================
@@ -258,100 +214,151 @@ import { initThree } from "./three/three_boot.js";
 import { createGrid, followGridToShip } from "./three/grid.js";
 import { createShip } from "./three/ship.js";
 import { Universe } from "./three/universe.js";
-import { spawnAsteroids, updateAsteroids, checkShipCollision } from "./three/asteroids.js";
+import { checkShipCollision } from "./three/asteroids.js";
 import { updateShip } from "./input/ship_controls.js";
 import { initOverlay } from "./phaser/phaser_overlay.js";
 import { setupResize } from "./shared/resize.js";
 import { updateChaseCamera } from "./input/camera_controls.js";
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-const canvas = document.getElementById("threeCanvas");
-const { renderer, scene, camera } = initThree(canvas);
-window.__camera = camera;
-const { mesh: gridMesh, uniforms } = createGrid(scene);
-const ship = createShip(scene);
-// Initialize the Infinite Universe Manager
-const universe = new Universe(scene, uniforms);
-// Create a pool of asteroids.
-// We pass a dummy list of planets initially because the Universe loads async.
-// This ensures the asteroid meshes are created. We will re-bind them in the loop.
-const dummyPlanet = {
-    mesh: { position: new THREE.Vector3(), geometry: { parameters: { radius: 2 }}}
-};
-// Spawn 3 groups of asteroids based on dummy data to fill the pool
-const asteroidPool = spawnAsteroids(scene, [dummyPlanet, dummyPlanet, dummyPlanet], ship.state.y);
-const phaserGame = initOverlay(ship);
-setupResize(renderer, camera, phaserGame);
-let last = performance.now();
-function loop(t) {
-  const dt = Math.min(0.033, (t - last) / 1000);
-  last = t;
-  uniforms.uTime.value += dt;
-  // Ship moves in its bottom box
-  updateShip(ship, camera, renderer, dt);
-  // Camera is locked to ship (chase)
-  updateChaseCamera(camera, ship, dt);
-  // Keep grid under ship (no edges, constant memory)
-  followGridToShip(gridMesh, ship.mesh);
-  // Universe Logic (Handles loading/unloading/rendering planets)
-  universe.update(ship.mesh);
-  // Asteroid Logic: Bind asteroids to currently active planets
-  // This allows asteroids to reuse the pool and appear around whatever is close
-  if (universe.activePlanets && universe.activePlanets.length > 0) {
-    asteroidPool.forEach((a, i) => {
-        // Distribute asteroids among the visible planets
-        const p = universe.activePlanets[i % universe.activePlanets.length];
-        // If the asteroid is extremely far from its assigned planet (e.g. planet unloaded),
-        // snap it back to the new planet immediately
-        const dx = a.mesh.position.x - p.position.x;
-        const dz = a.mesh.position.z - p.position.z;
-        if (dx*dx + dz*dz > 50000) {
-             a.angle = Math.random() * Math.PI * 2; // Reset orbit angle
+import GUI from "https://cdn.jsdelivr.net/npm/lil-gui@0.19.1/dist/lil-gui.esm.min.js";
+async function boot() {
+  console.log("[BOOT] Fetching tuning...");
+  const configRes = await fetch("/api/tuning");
+  const config = await configRes.json();
+  console.log("[BOOT] Tuning loaded:", config);
+  // [FIX] Updated GUI to match new physics variables
+  const gui = new GUI({ title: "Ship Controls" });
+  const shipFolder = gui.addFolder("Movement Physics");
+  shipFolder.add(config.ship, "baseSpeed", 0, 200).name("Fwd Speed");
+  shipFolder.add(config.ship, "maxLateralSpeed", 50, 800).name("Lat Speed");
+  shipFolder.add(config.ship, "lateralAccel", 1.0, 20.0).name("Lat Accel");
+  shipFolder.add(config.ship, "lateralFriction", 0.5, 20.0).name("Inertia/Fric");
+  // Replaced boxWidth with Boundary controls
+  shipFolder.add(config.ship, "boundaryEdge", 300, 1000).name("Corridor Width");
+  shipFolder.add(config.ship, "boundaryStrength", 0, 50).name("Wall Bounce");
+  shipFolder.open();
+  const universeFolder = gui.addFolder("Universe");
+  universeFolder.add(config.universe, "maxPlanetsPerSector", 0, 5, 1).name("Planet Count");
+  const canvas = document.getElementById("threeCanvas");
+  const { renderer, scene, camera } = initThree(canvas);
+  window.__camera = camera;
+  const { mesh: gridMesh, uniforms } = createGrid(scene, config.grid);
+  const ship = createShip(scene);
+  const universe = new Universe(scene, uniforms, config);
+  const phaserGame = initOverlay(ship);
+  setupResize(renderer, camera, phaserGame);
+  let last = performance.now();
+  let isGameOver = false;
+  function loop(t) {
+    if (isGameOver) return;
+    const dt = Math.min(0.033, (t - last) / 1000);
+    last = t;
+    uniforms.uTime.value += dt;
+    const globalTime = uniforms.uTime.value;
+    updateShip(ship, camera, renderer, dt, globalTime, universe.activePlanets, config.ship);
+    updateChaseCamera(camera, ship, dt);
+    followGridToShip(gridMesh, ship.mesh);
+    universe.update(ship.mesh, dt, globalTime);
+    const allAsteroids = [];
+    universe.activePlanets.forEach(p => {
+        if (p.userData.asteroids) {
+            allAsteroids.push(...p.userData.asteroids);
         }
-        // Update the reference so updateAsteroids() calculates orbit around THIS planet
-        a.planet = { mesh: p };
-        // Update orbit radius based on the new planet's size
-        a.orbit = p.userData.r + 3.0 + (i % 3);
     });
+    if (checkShipCollision(ship, allAsteroids)) {
+      triggerGameOver("Hull Critical: Asteroid Impact");
+      return;
+    }
+    if (checkPlanetCollision(ship, universe.activePlanets)) {
+      triggerGameOver("Atmospheric Entry Failed: Planet Collision");
+      return;
+    }
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
   }
-  updateAsteroids(asteroidPool, dt);
-  if (checkShipCollision(ship, asteroidPool)) {
-    console.log("[COLLISION] ship hit asteroid");
+  function checkPlanetCollision(ship, planets) {
+    const shipPos = ship.mesh.position;
+    const shipR = ship.radius * 0.8;
+    for (const p of planets) {
+      const distSq = shipPos.distanceToSquared(p.position);
+      const r = p.geometry.parameters.radius + shipR;
+      if (distSq < r * r) return true;
+    }
+    return false;
   }
-  renderer.render(scene, camera);
+  function triggerGameOver(reason) {
+    console.log("[GAME OVER]", reason);
+    isGameOver = true;
+    if (phaserGame && phaserGame.showGameOver) {
+      phaserGame.showGameOver(reason);
+    }
+  }
   requestAnimationFrame(loop);
+  console.log("[BOOT] main loop started");
 }
-requestAnimationFrame(loop);
-console.log("[BOOT] main loop started");
+boot();
 ================================================================================
 
 [-] This file: static/js/blackhole/phaser/phaser_overlay.js | Contents:
 export function initOverlay(ship) {
-  let marker, box;
+  let marker, box, gameOverText, reasonText;
   const game = new Phaser.Game({
     type: Phaser.WEBGL,
     parent: "phaserMount",
     width: innerWidth,
     height: innerHeight,
-    transparent: true,
+    transparent: true, // Crucial for overlay
     scale: { mode: Phaser.Scale.RESIZE },
     scene: {
       create() {
+        // --- HUD ---
         marker = this.add.circle(0, 0, 5, 0xffffff).setDepth(10);
         box = this.add.graphics().setDepth(9);
         this.add.text(
           14, 12,
-          "Arrow keys: ship (bottom box)\nAvoid orbiting asteroids\nCamera follows ship",
-          { fontSize: "14px", color: "#fff" }
+          "Arrow keys: ship (bottom box)\nAvoid orbiting asteroids\nAvoid Planets",
+          { fontSize: "14px", color: "#fff", stroke: "#000", strokeThickness: 2 }
         );
+        // --- Game Over Screens (Hidden by default) ---
+        gameOverText = this.add.text(innerWidth / 2, innerHeight / 2 - 20, "GAME OVER", {
+          fontSize: "64px",
+          color: "#ff3333",
+          fontStyle: "bold",
+          stroke: "#000",
+          strokeThickness: 6
+        }).setOrigin(0.5).setVisible(false).setDepth(20);
+        reasonText = this.add.text(innerWidth / 2, innerHeight / 2 + 40, "", {
+          fontSize: "24px",
+          color: "#ffffff",
+          stroke: "#000",
+          strokeThickness: 4
+        }).setOrigin(0.5).setVisible(false).setDepth(20);
+        // --- Expose function to Main Loop ---
+        game.showGameOver = (reason) => {
+          marker.setVisible(false);
+          box.setVisible(false);
+          gameOverText.setVisible(true);
+          reasonText.setText(reason + "\nReload to Restart").setVisible(true);
+          // Simple bounce animation
+          this.tweens.add({
+            targets: [gameOverText, reasonText],
+            scale: { from: 0.8, to: 1 },
+            duration: 800,
+            ease: 'Bounce.Out'
+          });
+        };
         console.log("[PHASER] overlay ready");
       },
       update() {
+        // Don't update HUD if game is over (optional preference)
+        if (gameOverText.visible) return;
         const v = ship.mesh.position.clone().project(window.__camera);
         const w = window.innerWidth;
         const h = window.innerHeight;
         marker.setPosition((v.x * 0.5 + 0.5) * w, (-v.y * 0.5 + 0.5) * h);
         const cx = w / 2;
         const by = h - ship.state.boxBottom;
+        // Red Control Box
         box.clear().lineStyle(2, 0xff0000, 0.6).strokeRect(
           cx - ship.state.boxWidth / 2,
           by - ship.state.boxHeight,
@@ -368,6 +375,71 @@ export function initOverlay(ship) {
 [-] This file: static/js/blackhole/shared/math.js | Contents:
 export function rand(min, max) {
   return min + Math.random() * (max - min);
+}
+================================================================================
+
+[-] This file: static/js/blackhole/shared/physics_height.js | Contents:
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+// Must match grid_shader.js consts
+const SOFTENING = 8.0;
+const DEPTH_STRENGTH = 20.0;
+// [TUNING] Slower, smoother liquid waves
+const NOISE_AMP = 4.0;
+const NOISE_FREQ = 0.015; // Lower frequency = Wider, gentler hills
+const WAVE_SPEED = 0.2;   // Slower animation
+// --- GLSL Hash / Noise Port ---
+function fract(x) { return x - Math.floor(x); }
+function hash(x, y) {
+  const dot = x * 12.9898 + y * 78.233;
+  const sin = Math.sin(dot);
+  return fract(sin * 43758.5453);
+}
+function noise(x, y) {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const fx = fract(x);
+  const fy = fract(y);
+  // Cubic Hermite Smoothing
+  const ux = fx * fx * (3.0 - 2.0 * fx);
+  const uy = fy * fy * (3.0 - 2.0 * fy);
+  const a = hash(ix, iy);
+  const b = hash(ix + 1, iy);
+  const c = hash(ix, iy + 1);
+  const d = hash(ix + 1, iy + 1);
+  return (a * (1 - ux) + b * ux) * (1 - uy) +
+         (c * (1 - ux) + d * ux) * uy;
+}
+function fbm(x, y, t) {
+  let total = 0.0;
+  let amp = 1.0;
+  let freq = NOISE_FREQ;
+  // Animate the domain with time for liquid flow
+  const tx = t * WAVE_SPEED;
+  const ty = t * WAVE_SPEED * 0.5;
+  // 3 Octaves
+  for(let i = 0; i < 3; i++) {
+    total += noise(x * freq + tx, y * freq + ty) * amp;
+    freq *= 2.0;
+    amp *= 0.5;
+  }
+  return total;
+}
+// --- Main Surface Function ---
+export function getSurfaceHeight(x, z, t, planets) {
+  // 1. Gravity Wells
+  let w = 0.0;
+  if (planets) {
+    for (const p of planets) {
+      const dx = x - p.position.x;
+      const dz = z - p.position.z;
+      // Simple inverse square approximation for depth
+      w += p.userData.mass / (dx * dx + dz * dz + SOFTENING);
+    }
+  }
+  // 2. Terrain Noise (Liquid)
+  const terrain = fbm(x, z, t || 0) * NOISE_AMP;
+  // 3. Combine
+  return terrain - (w * DEPTH_STRENGTH);
 }
 ================================================================================
 
@@ -399,49 +471,103 @@ export function setupResize(renderer, camera, phaserGame) {
 [-] This file: static/js/blackhole/three/asteroids.js | Contents:
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 import { rand } from "../shared/math.js";
-export function spawnAsteroids(scene, planets, shipY) {
+// Helper to noise-deform a sphere
+function ruggedizeGeometry(geometry, amount) {
+  const posAttribute = geometry.attributes.position;
+  const vertex = new THREE.Vector3();
+  for (let i = 0; i < posAttribute.count; i++) {
+    vertex.fromBufferAttribute(posAttribute, i);
+    // Displace along normal (which is just the normalized position for a sphere)
+    // We use a simple random jitter here. For smoother rocks, we'd use Perlin noise,
+    // but random jitter is usually enough for small asteroids.
+    const deform = 1.0 + (Math.random() - 0.5) * amount;
+    vertex.multiplyScalar(deform);
+    posAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
+  }
+  // Re-compute normals so lighting looks correct on the jagged surface
+  geometry.computeVertexNormals();
+  return geometry;
+}
+export function createAsteroidSystem(planetMesh, config) {
+  // Config defaults
+  const conf = config || {
+    minCount: 4, maxCount: 8,
+    minSize: 0.3, maxSize: 0.7,
+    orbitDistanceMin: 1.5, orbitDistanceMax: 4.0,
+    orbitSpeedMin: 0.2, orbitSpeedMax: 0.8,
+    ruggedness: 0.2
+  };
   const asteroids = [];
-  planets.forEach((p) => {
-    if (p.isBlackHole) return;
-    const count = Math.floor(rand(4, 7));
-    for (let i = 0; i < count; i++) {
-      const r = rand(0.12, 0.28);
-      const orbit = p.mesh.geometry.parameters.radius + rand(1.2, 3.6);
-      const mesh = new THREE.Mesh(
-        new THREE.SphereGeometry(r, 12, 10),
-        new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.9, metalness: 0.0 })
-      );
-      scene.add(mesh);
-      asteroids.push({
-        mesh,
-        planet: p,
-        angle: rand(0, Math.PI * 2),
-        speed: rand(0.6, 1.8) * (Math.random() < 0.5 ? -1 : 1),
-        orbit,
-        r,
-        y: shipY + rand(-0.2, 0.2),
-      });
-    }
-  });
-  console.log("[ASTEROIDS] spawned:", asteroids.length);
+  const count = Math.floor(rand(conf.minCount, conf.maxCount));
+  // 1. Define the Orbit Ring (A spline concept)
+  // We want a ring around the equator (XZ plane relative to planet).
+  // We don't need a visible line, just the math.
+  for (let i = 0; i < count; i++) {
+    // Randomize size
+    const r = rand(conf.minSize, conf.maxSize);
+    // Create Geometry
+    let geo = new THREE.SphereGeometry(r, 7, 6); // Low poly for jagged look
+    ruggedizeGeometry(geo, conf.ruggedness);
+    const mat = new THREE.MeshStandardMaterial({
+        color: 0x888888,
+        roughness: 0.9,
+        flatShading: true // Low poly look
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    // 2. Setup Orbit Logic
+    // Distance from planet center
+    const planetRadius = planetMesh.geometry.parameters.radius;
+    const dist = planetRadius + rand(conf.orbitDistanceMin, conf.orbitDistanceMax);
+    // Start Angle
+    const angle = Math.random() * Math.PI * 2;
+    // Orbit Speed (Radians per second)
+    const speed = rand(conf.orbitSpeedMin, conf.orbitSpeedMax) * (Math.random() < 0.5 ? 1 : -1);
+    // Initial position (Local to planet)
+    mesh.position.set(Math.cos(angle) * dist, rand(-0.5, 0.5), Math.sin(angle) * dist);
+    // Add to Planet (So it moves with it)
+    planetMesh.add(mesh);
+    asteroids.push({
+      mesh,
+      orbitRadius: dist,
+      angle: angle,
+      speed: speed,
+      rotationAxis: new THREE.Vector3(Math.random(), Math.random(), Math.random()).normalize(),
+      rotationSpeed: rand(0.5, conf.selfRotationSpeed),
+      r: r // Collision radius
+    });
+  }
   return asteroids;
 }
-export function updateAsteroids(asteroids, dt) {
-  asteroids.forEach((a) => {
+export function updateAsteroids(planetMesh, dt) {
+  // We stored the asteroid data on the planetMesh.userData for convenience
+  const data = planetMesh.userData.asteroids;
+  if (!data) return;
+  data.forEach(a => {
+    // 1. Orbit Update (Smooth circular motion)
     a.angle += a.speed * dt;
-    a.mesh.position.set(
-      a.planet.mesh.position.x + Math.cos(a.angle) * a.orbit,
-      a.y,
-      a.planet.mesh.position.z + Math.sin(a.angle) * a.orbit
-    );
+    // Update local position relative to planet
+    // This creates a perfect ring orbit that follows the planet smoothly
+    a.mesh.position.x = Math.cos(a.angle) * a.orbitRadius;
+    a.mesh.position.z = Math.sin(a.angle) * a.orbitRadius;
+    // 2. Self Rotation (Tumbling)
+    a.mesh.rotateOnAxis(a.rotationAxis, a.rotationSpeed * dt);
   });
 }
-export function checkShipCollision(ship, asteroids) {
-  for (const a of asteroids) {
-    const dx = a.mesh.position.x - ship.mesh.position.x;
-    const dz = a.mesh.position.z - ship.mesh.position.z;
+// Global collision check (World Space)
+export function checkShipCollision(ship, allAsteroids) {
+  const shipPos = ship.mesh.position;
+  const worldPos = new THREE.Vector3();
+  for (const a of allAsteroids) {
+    // Get asteroid real world position
+    a.mesh.getWorldPosition(worldPos);
+    const dx = worldPos.x - shipPos.x;
+    const dz = worldPos.z - shipPos.z;
+    // Simple sphere collision
     const rr = (ship.radius + a.r) * (ship.radius + a.r);
-    if (dx * dx + dz * dz < rr) return true;
+    // Optimistic height check first
+    if (Math.abs(worldPos.y - shipPos.y) < 3.0) {
+        if (dx * dx + dz * dz < rr) return true;
+    }
   }
   return false;
 }
@@ -473,19 +599,19 @@ export const MAX_PLANETS = 8;
 export function makeGridMaterial(THREE) {
   const uniforms = {
     uTime: { value: 0 },
-    // Grid tuning
-    uGridScale: { value: 0.35 },      // lines per world unit
-    uLineWidth: { value: 1.25 },
+    uGridScale: { value: 0.35 },
+    uLineWidth: { value: 1.5 },
     uSoftening: { value: 8.0 },
-    uDepth: { value: 22.0 },
-    // FLOW x16 (strong)
-    uFlowSpeed: { value: 0.14 * 16.0 },
-    uFlowStrength: { value: 0.018 * 16.0 },
+    uDepth: { value: 20.0 },
+    uFlowSpeed: { value: 2.0 },
+    uFlowStrength: { value: 1.0 },
     uPlanetCount: { value: 0 },
     uPlanetPos: {
       value: Array.from({ length: MAX_PLANETS }, () => new THREE.Vector3(9999, 0, 9999))
     },
-    uPlanetMass: { value: new Array(MAX_PLANETS).fill(0) }
+    uPlanetMass: { value: new Array(MAX_PLANETS).fill(0) },
+    // Fog Uniforms
+    ...THREE.UniformsLib.fog
   };
   const material = new THREE.ShaderMaterial({
     uniforms,
@@ -498,58 +624,41 @@ export function makeGridMaterial(THREE) {
       uniform float uPlanetMass[${MAX_PLANETS}];
       varying vec2 vWorldXZ;
       varying float vWell;
-      // --- Noise Functions for Terrain ---
-      float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
-      }
-      // Simple value noise
+      #include <fog_pars_vertex>
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
       float noise(vec2 p) {
-        vec2 i = floor(p);
-        vec2 f = fract(p);
-        // Hermite smoothing
+        vec2 i = floor(p); vec2 f = fract(p);
         f = f * f * (3.0 - 2.0 * f);
-        float a = hash(i + vec2(0.0, 0.0));
-        float b = hash(i + vec2(1.0, 0.0));
-        float c = hash(i + vec2(0.0, 1.0));
-        float d = hash(i + vec2(1.0, 1.0));
-        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+                   mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
       }
-      // Fractal Brownian Motion (Terrain layering)
-      float fbm(vec2 p) {
-        float total = 0.0;
-        float amp = 1.0;
-        float freq = 0.1;
-        // 3 Octaves
+      float fbm(vec2 p, float t) {
+        float total = 0.0; float amp = 1.0; float freq = 0.03;
+        vec2 shift = vec2(t * 0.5, t * 0.25);
         for(int i = 0; i < 3; i++) {
-            total += noise(p * freq) * amp;
-            freq *= 2.0;
-            amp *= 0.5;
+            total += noise(p * freq + shift) * amp;
+            freq *= 2.0; amp *= 0.5;
         }
         return total;
       }
-      float well(vec2 d, float m) {
-        return m / (dot(d,d) + uSoftening);
-      }
+      float well(vec2 d, float m) { return m / (dot(d,d) + uSoftening); }
       void main() {
         vec3 worldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-        // 1. Gravity Wells
         float w = 0.0;
         for (int i = 0; i < ${MAX_PLANETS}; i++) {
           if (i >= uPlanetCount) break;
           w += well(worldPos.xz - uPlanetPos[i].xz, uPlanetMass[i]);
         }
-        // 2. Terrain Noise (Static in World Space)
-        // Adjust frequency (0.15) for hill size and amplitude (4.0) for height
-        float terrain = fbm(worldPos.xz * 0.15) * 4.0;
-        // Apply Displacements
+        float terrain = fbm(worldPos.xz, uTime) * 4.0;
         vec3 p = position;
-        // Push down for gravity, push up/down for terrain
         p.y -= uDepth * w;
         p.y += terrain;
-        // Pass to fragment
         vWorldXZ = worldPos.xz;
         vWell = w;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+        // [FIX] Define mvPosition explicitly for Fog
+        vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
       }
     `,
     fragmentShader: `
@@ -564,38 +673,38 @@ export function makeGridMaterial(THREE) {
       uniform float uPlanetMass[${MAX_PLANETS}];
       varying vec2 vWorldXZ;
       varying float vWell;
+      #include <fog_pars_fragment>
       float gridLines(vec2 p) {
-        // p in world space * scale
         vec2 g = p * uGridScale;
-        // Anti-aliased grid using fwidth
         vec2 a = abs(fract(g - 0.5) - 0.5) / fwidth(g);
         float line = 1.0 - min(min(a.x, a.y), 1.0);
         return smoothstep(0.0, 1.0, line * uLineWidth);
       }
       void main() {
-        // Flow vector field (WORLD)
         vec2 flow = vec2(0.0);
         for (int i = 0; i < ${MAX_PLANETS}; i++) {
           if (i >= uPlanetCount) break;
           vec2 d = uPlanetPos[i].xz - vWorldXZ;
           float r2 = dot(d,d) + uSoftening;
-          flow += normalize(d + 1e-6) * (uPlanetMass[i] / r2);
+          vec2 radial = normalize(d + 1e-6);
+          vec2 tangent = vec2(-radial.y, radial.x);
+          flow += (radial * 0.5 + tangent * 1.5) * (uPlanetMass[i] / r2);
         }
-        vec2 flowDir = normalize(flow + 1e-6);
-        float flowMag = clamp(length(flow) * 0.08, 0.0, 1.0);
-        // Advect the sample position (visual “grid streaming”)
-        vec2 sampleXZ = vWorldXZ + flowDir * (uFlowStrength * flowMag) * (uTime * uFlowSpeed);
+        vec2 baseRiver = vec2(0.0, 1.0);
+        vec2 finalFlow = baseRiver * 0.2 + flow * uFlowStrength;
+        vec2 sampleXZ = vWorldXZ - finalFlow * (uTime * uFlowSpeed);
         float line = gridLines(sampleXZ);
-        // Glow around curvature
-        float glow = clamp(vWell * 12.0, 0.0, 0.55);
+        float glow = clamp(vWell * 8.0, 0.0, 0.8);
         vec3 col = vec3(line);
-        col += glow * vec3(0.9, 0.9, 1.0);
-        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+        col += glow * vec3(0.6, 0.8, 1.0);
+        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 0.6);
+        #include <fog_fragment>
       }
     `,
-    transparent: false,
-    depthWrite: true,
-    depthTest: true
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    fog: true
   });
   return { material, uniforms };
 }
@@ -653,7 +762,12 @@ export function initThree(canvas) {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setClearColor(0x000000, 1);
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 5000);
+  // [NEW] Fog for smooth fade in.
+  // Color 0x000000 (Black).
+  // Start: 120 (Just beyond the ship), End: 450 (Fade out completely)
+  scene.fog = new THREE.Fog(0x000000, 120, 450);
+  // [NEW] Increased Far Plane to 6000 to prevent clipping before fog ends
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 6000);
   camera.rotation.order = "YXZ";
   resetCameraSym(camera);
   scene.add(new THREE.HemisphereLight(0xffffff, 0x101018, 0.8));
@@ -669,66 +783,71 @@ export function resetCameraSym(camera) {
 ================================================================================
 
 [-] This file: static/js/blackhole/three/universe.js | Contents:
-// static/js/blackhole/three/universe.js
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 import { createPlanetMesh } from "./planets.js";
 import { rand } from "../shared/math.js";
-// Size of one "sector" in world units
-const SECTOR_SIZE = 250;
+import { createAsteroidSystem, updateAsteroids } from "./asteroids.js";
 const MAX_SHADER_PLANETS = 8;
 export class Universe {
-  constructor(scene, uniforms) {
+  constructor(scene, uniforms, config) {
     this.scene = scene;
     this.uniforms = uniforms;
-    // Key: "x:z" (sector coords), Value: Array of planet data objects
+    this.config = config; // Tuning data
     this.sectorData = new Map();
-    // Key: "x:z", Value: Array of THREE.Mesh objects
     this.sectorMeshes = new Map();
-    // Set of keys currently queued for fetching/saving to prevent duplicate calls
     this.pendingKeys = new Set();
-    this.currentSector = { x: 999999, z: 999999 };
+    // We track the 'row' (Z index) the ship is currently in
+    this.currentRowZ = -999999;
     this.shipPos = new THREE.Vector3();
-    // Public list of planets currently in the scene (sorted by distance)
     this.activePlanets = [];
   }
-  update(shipMesh) {
+  update(shipMesh, dt, time) {
     this.shipPos.copy(shipMesh.position);
-    // 1. Calculate current sector index based on ship position
-    const sx = Math.floor(shipMesh.position.x / SECTOR_SIZE);
-    const sz = Math.floor(shipMesh.position.z / SECTOR_SIZE);
-    // 2. If entered new sector, manage lifecycle (load new, unload old)
-    if (sx !== this.currentSector.x || sz !== this.currentSector.z) {
-      this.currentSector = { x: sx, z: sz };
-      this.handleSectorChange(sx, sz);
+    // Calculate which Z-Row the ship is in
+    const sz = Math.floor(shipMesh.position.z / this.config.universe.sectorSize);
+    // If we entered a new row, update the corridor
+    if (sz !== this.currentRowZ) {
+      this.currentRowZ = sz;
+      this.updateCorridor(sz);
     }
-    // 3. Update Shader Uniforms (pass closest 8 planets to the grid shader)
+    // Update Asteroids on active planets
+    this.activePlanets.forEach(p => {
+        updateAsteroids(p, dt);
+    });
     this.updateShaderGravity();
   }
-  async handleSectorChange(cx, cz) {
-    // Determine the 3x3 grid of sectors around the ship to keep loaded
+  async updateCorridor(currentZ) {
     const keysNeeded = [];
-    for (let x = cx - 1; x <= cx + 1; x++) {
-      for (let z = cz - 1; z <= cz + 1; z++) {
-        keysNeeded.push(`${x}:${z}`);
-      }
+    // [LOGIC] 3-Lane Corridor
+    // We always want sectors x=[-1, 0, 1] relative to the track center.
+    // We want the current row, and 2 rows ahead for smooth scrolling.
+    const forwardView = 2;
+    for (let z = currentZ; z <= currentZ + forwardView; z++) {
+        for (let x = -1; x <= 1; x++) {
+            keysNeeded.push(`${x}:${z}`);
+        }
     }
-    // 1. Unload far sectors (cleanup memory)
+    // 1. Cleanup: Remove any sectors NOT in our needed list (Behind us or too far ahead)
+    // This handles the "delete from memory as soon as it is behind us" requirement.
     for (const [key, meshes] of this.sectorMeshes) {
       if (!keysNeeded.includes(key)) {
         meshes.forEach(m => {
             this.scene.remove(m);
             if(m.geometry) m.geometry.dispose();
             if(m.material) m.material.dispose();
+            m.userData.asteroids = null;
         });
         this.sectorMeshes.delete(key);
+        // We can optionally keep the data in 'sectorData' if we want to revisit,
+        // but for a scrolling shooter, we can probably let it go or keep it cached.
       }
     }
-    // 2. Identify missing data
+    // 2. Fetch/Generate: Load missing sectors
     const keysToFetch = keysNeeded.filter(k => !this.sectorData.has(k) && !this.pendingKeys.has(k));
     if (keysToFetch.length > 0) {
       await this.fetchSectors(keysToFetch);
     }
-    // 3. Instantiate meshes for data we have but haven't built yet
+    // 3. Build: Ensure meshes exist for data we have
     keysNeeded.forEach(key => {
       if (this.sectorData.has(key) && !this.sectorMeshes.has(key)) {
         this.buildSector(key);
@@ -738,7 +857,6 @@ export class Universe {
   async fetchSectors(keys) {
     keys.forEach(k => this.pendingKeys.add(k));
     try {
-      // Ask backend for these sectors
       const params = new URLSearchParams({ keys: keys.join(",") });
       const res = await fetch(`/api/universe/load?${params}`);
       const data = await res.json();
@@ -746,10 +864,8 @@ export class Universe {
       let hasNewData = false;
       keys.forEach(key => {
         if (data[key]) {
-          // Found in DB
           this.sectorData.set(key, data[key]);
         } else {
-          // Not found -> Procedurally Generate
           const generated = this.generateSector(key);
           this.sectorData.set(key, generated);
           newSectors[key] = generated;
@@ -757,7 +873,6 @@ export class Universe {
         }
         this.pendingKeys.delete(key);
       });
-      // Save newly generated sectors back to DB
       if (hasNewData) {
         fetch("/api/universe/save", {
           method: "POST",
@@ -771,26 +886,30 @@ export class Universe {
     }
   }
   generateSector(key) {
+    const uConf = this.config.universe;
     const [sx, sz] = key.split(":").map(Number);
+    // Always Safe Zone at very start
+    if (sx === 0 && sz === 0) return [];
+    if (Math.random() < uConf.voidChance) return [];
     const planets = [];
-    // 10% chance for an empty void sector
-    const isVoid = Math.random() < 0.1;
-    if (isVoid) return [];
-    // 1-3 planets per sector
-    const count = Math.floor(rand(1, 4));
+    const count = Math.floor(rand(1, uConf.maxPlanetsPerSector));
     for (let i = 0; i < count; i++) {
-      // 5% chance for a black hole
-      const isBlackHole = Math.random() < 0.05;
-      const r = isBlackHole ? rand(1.5, 2.5) : rand(1.0, 3.0);
-      // Position relative to sector center
-      const lx = rand(-SECTOR_SIZE * 0.4, SECTOR_SIZE * 0.4);
-      const lz = rand(-SECTOR_SIZE * 0.4, SECTOR_SIZE * 0.4);
+      const isBlackHole = Math.random() < uConf.blackHoleChance;
+      const r = isBlackHole ? rand(20, 30) : rand(12, 25);
+      // Random position within the sector
+      // Sector size is typically 500.
+      // We want to fill the lane but keep it somewhat centered in its tile.
+      const margin = uConf.sectorSize * 0.1;
+      const effectiveSize = uConf.sectorSize * 0.8;
+      const lx = (Math.random() * effectiveSize) - (effectiveSize / 2);
+      const lz = (Math.random() * effectiveSize) - (effectiveSize / 2);
+      const mass = isBlackHole ? r * r * 1.5 : r * 4.0;
       planets.push({
-        x: sx * SECTOR_SIZE + lx,
-        y: rand(0, 10), // variable height variation
-        z: sz * SECTOR_SIZE + lz,
+        x: sx * uConf.sectorSize + lx,
+        y: rand(-5, 5),
+        z: sz * uConf.sectorSize + lz,
         r: r,
-        mass: r * r * (isBlackHole ? 20 : 3), // Black holes are much heavier
+        mass: mass,
         type: isBlackHole ? "blackhole" : "planet",
         colorHue: Math.random()
       });
@@ -803,89 +922,47 @@ export class Universe {
     data.forEach(pData => {
       const mesh = createPlanetMesh(pData);
       mesh.position.set(pData.x, pData.y, pData.z);
+      if (!pData.isBlackHole && pData.type !== 'blackhole') {
+        const asteroidConfig = {
+            ...this.config.asteroids,
+            minCount: 1,
+            maxCount: 3,
+            orbitDistanceMin: 1.2,
+            orbitDistanceMax: 2.0,
+            minSize: 0.8,
+            maxSize: 1.5
+        };
+        const asteroids = createAsteroidSystem(mesh, asteroidConfig);
+        mesh.userData.asteroids = asteroids;
+      }
       this.scene.add(mesh);
-      // Link data for logic
-      mesh.userData = { ...pData };
+      mesh.userData = { ...mesh.userData, ...pData };
       meshes.push(mesh);
     });
     this.sectorMeshes.set(key, meshes);
   }
   updateShaderGravity() {
-    // Collect all active planets from loaded sectors
     let allMeshes = [];
     for (const meshes of this.sectorMeshes.values()) {
       allMeshes = allMeshes.concat(meshes);
     }
-    // Sort by distance to ship
     allMeshes.sort((a, b) => {
       const d1 = a.position.distanceToSquared(this.shipPos);
       const d2 = b.position.distanceToSquared(this.shipPos);
       return d1 - d2;
     });
-    // Pick top 8 for the shader
     const closest = allMeshes.slice(0, MAX_SHADER_PLANETS);
     this.activePlanets = closest;
-    // Update Uniforms
     this.uniforms.uPlanetCount.value = closest.length;
     for (let i = 0; i < MAX_SHADER_PLANETS; i++) {
       if (i < closest.length) {
         this.uniforms.uPlanetPos.value[i].copy(closest[i].position);
         this.uniforms.uPlanetMass.value[i] = closest[i].userData.mass;
       } else {
-        // Clear unused slots
         this.uniforms.uPlanetPos.value[i].set(99999, 99999, 99999);
         this.uniforms.uPlanetMass.value[i] = 0;
       }
     }
   }
 }
-================================================================================
-
-[-] This file: templates/index.html | Contents:
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Black Hole – Hybrid 2.5D Demo</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: #000;
-      font-family: system-ui, Arial, sans-serif;
-    }
-    #wrap {
-      position: relative;
-      width: 100%;
-      height: 100%;
-    }
-    canvas {
-      position: absolute;
-      inset: 0;
-      width: 100% !important;
-      height: 100% !important;
-      display: block;
-    }
-    #threeCanvas { z-index: 0; }
-    #phaserMount canvas {
-      z-index: 1;
-      background: transparent !important;
-    }
-  </style>
-</head>
-<body>
-  <div id="wrap">
-    <canvas id="threeCanvas"></canvas>
-    <div id="phaserMount"></div>
-  </div>
-  <!-- Phaser -->
-  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
-  <!-- Main entry -->
-  <script type="module" src="/static/js/blackhole/main.js"></script>
-</body>
-</html>
 ================================================================================
