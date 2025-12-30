@@ -1,95 +1,100 @@
-// ... existing imports
 import { initThree } from "./three/three_boot.js";
 import { createGrid, followGridToShip } from "./three/grid.js";
 import { createShip } from "./three/ship.js";
 import { Universe } from "./three/universe.js";
-import { spawnAsteroids, updateAsteroids, checkShipCollision } from "./three/asteroids.js";
-import { updateShip } from "./input/ship_controls.js"; // Updated import logic
+import { checkShipCollision } from "./three/asteroids.js"; // Note: Only collision check here now
+import { updateShip } from "./input/ship_controls.js";
 import { initOverlay } from "./phaser/phaser_overlay.js";
 import { setupResize } from "./shared/resize.js";
 import { updateChaseCamera } from "./input/camera_controls.js";
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 
-// ... [Setup code remains same] ...
-const canvas = document.getElementById("threeCanvas");
-const { renderer, scene, camera } = initThree(canvas);
-window.__camera = camera;
+async function boot() {
+  console.log("[BOOT] Fetching tuning...");
+  const configRes = await fetch("/api/tuning");
+  const config = await configRes.json();
+  console.log("[BOOT] Tuning loaded:", config);
 
-const { mesh: gridMesh, uniforms } = createGrid(scene);
-const ship = createShip(scene);
-const universe = new Universe(scene, uniforms);
+  const canvas = document.getElementById("threeCanvas");
+  const { renderer, scene, camera } = initThree(canvas);
+  window.__camera = camera;
 
-const dummyPlanet = {
-  mesh: { position: new THREE.Vector3(), geometry: { parameters: { radius: 2 }}}
-};
-const asteroidPool = spawnAsteroids(scene, [dummyPlanet, dummyPlanet, dummyPlanet], ship.state.y);
+  // Pass config to Grid
+  const { mesh: gridMesh, uniforms } = createGrid(scene, config.grid);
+  const ship = createShip(scene);
 
-const phaserGame = initOverlay(ship);
-setupResize(renderer, camera, phaserGame);
+  // Initialize Universe with config
+  const universe = new Universe(scene, uniforms, config);
 
-let last = performance.now();
-let isGameOver = false;
+  // Note: We removed the "Asteroid Pool". Asteroids are now managed inside the Universe/Planets.
 
-function loop(t) {
-  if (isGameOver) return;
+  const phaserGame = initOverlay(ship);
+  setupResize(renderer, camera, phaserGame);
 
-  const dt = Math.min(0.033, (t - last) / 1000);
-  last = t;
-  uniforms.uTime.value += dt;
+  let last = performance.now();
+  let isGameOver = false;
 
-  // --- CHANGED: Pass activePlanets to ship for height calculation ---
-  updateShip(ship, camera, renderer, dt, universe.activePlanets);
+  function loop(t) {
+    if (isGameOver) return;
 
-  updateChaseCamera(camera, ship, dt);
-  followGridToShip(gridMesh, ship.mesh);
-  universe.update(ship.mesh);
+    const dt = Math.min(0.033, (t - last) / 1000);
+    last = t;
+    uniforms.uTime.value += dt;
 
-  if (universe.activePlanets && universe.activePlanets.length > 0) {
-    asteroidPool.forEach((a, i) => {
-        const p = universe.activePlanets[i % universe.activePlanets.length];
-        const dx = a.mesh.position.x - p.position.x;
-        const dz = a.mesh.position.z - p.position.z;
-        if (dx*dx + dz*dz > 50000) {
-             a.angle = Math.random() * Math.PI * 2;
+    // Pass config to Ship
+    updateShip(ship, camera, renderer, dt, universe.activePlanets, config.ship);
+
+    updateChaseCamera(camera, ship, dt);
+    followGridToShip(gridMesh, ship.mesh);
+
+    // Universe handles planets AND their child asteroids now
+    universe.update(ship.mesh, dt);
+
+    // Collision Checks need to look at all active planets' children
+    // We gather all asteroids from active planets for collision
+    const allAsteroids = [];
+    universe.activePlanets.forEach(p => {
+        if (p.userData.asteroids) {
+            allAsteroids.push(...p.userData.asteroids);
         }
-        a.planet = { mesh: p };
-        a.orbit = p.userData.r + 3.0 + (i % 3);
     });
-  }
-  updateAsteroids(asteroidPool, dt);
 
-  // Checks
-  if (checkShipCollision(ship, asteroidPool)) {
-    triggerGameOver("Hull Critical: Asteroid Impact");
-    return;
-  }
-  if (checkPlanetCollision(ship, universe.activePlanets)) {
-    triggerGameOver("Atmospheric Entry Failed: Planet Collision");
-    return;
+    if (checkShipCollision(ship, allAsteroids)) {
+      triggerGameOver("Hull Critical: Asteroid Impact");
+      return;
+    }
+
+    // Check Planet Collision
+    if (checkPlanetCollision(ship, universe.activePlanets)) {
+      triggerGameOver("Atmospheric Entry Failed: Planet Collision");
+      return;
+    }
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
   }
 
-  renderer.render(scene, camera);
+  function checkPlanetCollision(ship, planets) {
+    const shipPos = ship.mesh.position;
+    const shipR = ship.radius * 0.8;
+    for (const p of planets) {
+      const distSq = shipPos.distanceToSquared(p.position);
+      const r = p.geometry.parameters.radius + shipR;
+      if (distSq < r * r) return true;
+    }
+    return false;
+  }
+
+  function triggerGameOver(reason) {
+    console.log("[GAME OVER]", reason);
+    isGameOver = true;
+    if (phaserGame && phaserGame.showGameOver) {
+      phaserGame.showGameOver(reason);
+    }
+  }
+
   requestAnimationFrame(loop);
+  console.log("[BOOT] main loop started");
 }
 
-function checkPlanetCollision(ship, planets) {
-  const shipPos = ship.mesh.position;
-  const shipR = ship.radius * 0.8;
-  for (const p of planets) {
-    const distSq = shipPos.distanceToSquared(p.position);
-    const r = p.geometry.parameters.radius + shipR;
-    if (distSq < r * r) return true;
-  }
-  return false;
-}
-
-function triggerGameOver(reason) {
-  console.log("[GAME OVER]", reason);
-  isGameOver = true;
-  if (phaserGame && phaserGame.showGameOver) {
-    phaserGame.showGameOver(reason);
-  }
-}
-
-requestAnimationFrame(loop);
-console.log("[BOOT] main loop started");
+boot();

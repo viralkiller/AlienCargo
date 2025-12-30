@@ -9,8 +9,8 @@ export function makeGridMaterial(THREE) {
     uSoftening: { value: 8.0 },
     uDepth: { value: 22.0 },
     // FLOW
-    uFlowSpeed: { value: 0.14 * 30.0 },
-    uFlowStrength: { value: 0.018 * 30.0 },
+    uFlowSpeed: { value: 0.14 * 15.0 },
+    uFlowStrength: { value: 0.018 * 15.0 },
     uPlanetCount: { value: 0 },
     uPlanetPos: {
       value: Array.from({ length: MAX_PLANETS }, () => new THREE.Vector3(9999, 0, 9999))
@@ -47,7 +47,6 @@ export function makeGridMaterial(THREE) {
       float fbm(vec2 p) {
         float total = 0.0;
         float amp = 1.0;
-        // [TUNING] Frequency 0.02 (Smooth)
         float freq = 0.02;
         for(int i = 0; i < 3; i++) {
             total += noise(p * freq) * amp;
@@ -63,15 +62,12 @@ export function makeGridMaterial(THREE) {
       void main() {
         vec3 worldPos = (modelMatrix * vec4(position, 1.0)).xyz;
 
-        // 1. Gravity Wells
         float w = 0.0;
         for (int i = 0; i < ${MAX_PLANETS}; i++) {
           if (i >= uPlanetCount) break;
           w += well(worldPos.xz - uPlanetPos[i].xz, uPlanetMass[i]);
         }
 
-        // 2. Terrain Noise
-        // [TUNING] Amplitude 3.0
         float terrain = fbm(worldPos.xz) * 3.0;
 
         vec3 p = position;
@@ -124,11 +120,13 @@ export function makeGridMaterial(THREE) {
         vec3 col = vec3(line);
         col += glow * vec3(0.9, 0.9, 1.0);
 
-        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+        // [TUNING] 50% Opacity
+        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 0.5);
       }
     `,
-    transparent: false,
-    depthWrite: true,
+    // [TUNING] Enable transparency
+    transparent: true,
+    depthWrite: false, // Don't write to depth buffer to avoid self-occlusion issues when transparent
     depthTest: true
   });
 

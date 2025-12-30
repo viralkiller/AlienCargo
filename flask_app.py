@@ -3,13 +3,14 @@ import logging
 import json
 import os
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
 
 # -----------------------------
 # Config
 # -----------------------------
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
+STATIC_DIR = BASE_DIR / "static"
 UNIVERSE_FILE = DATA_DIR / "universe.json"
 
 # Ensure data directory exists
@@ -33,7 +34,6 @@ app = Flask(__name__)
 # Data Persistence Helpers
 # -----------------------------
 def load_universe_data():
-    """Loads the entire universe dictionary from JSON."""
     if not UNIVERSE_FILE.exists():
         return {}
     try:
@@ -44,9 +44,7 @@ def load_universe_data():
         return {}
 
 def save_universe_data(new_data):
-    """Merges new sector data into the existing JSON file."""
     try:
-        # Load existing first to merge
         current = load_universe_data()
         current.update(new_data)
         with open(UNIVERSE_FILE, "w") as f:
@@ -62,25 +60,24 @@ def index():
     logger.info("UI: render index")
     return render_template("index.html")
 
+@app.get("/api/tuning")
+def get_tuning():
+    """Serves the central tuning configuration."""
+    # Assumes static/json/tuning.json exists
+    return send_from_directory(STATIC_DIR / "json", "tuning.json")
+
 @app.get("/api/universe/load")
 def load_sectors():
-    """
-    Returns specific sectors requested via query param ?keys=1:2,1:3
-    """
     keys = request.args.get("keys")
     all_data = load_universe_data()
-
     if not keys:
-        # If no keys specified, return everything (useful for debug, risky if huge)
         return jsonify(all_data)
-
     requested_keys = keys.split(",")
     result = {k: all_data[k] for k in requested_keys if k in all_data}
     return jsonify(result)
 
 @app.post("/api/universe/save")
 def save_sector():
-    """Receives a dictionary of sectors -> planet data and saves them."""
     data = request.json
     save_universe_data(data)
     return jsonify({"status": "ok"})

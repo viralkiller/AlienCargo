@@ -1,0 +1,38 @@
+{
+  "ship": {
+    "baseSpeed": 90,
+    "brakePower": 150,
+    "hoverOffset": 4.0,
+    "maxLateralSpeed": 100
+  },
+  "universe": {
+    "sectorSize": 500,
+    "voidChance": 0.90,
+    "maxPlanetsPerSector": 1,
+    "blackHoleChance": 0.01,
+    "planetScaleMin": 10,
+    "planetScaleMax": 30,
+    "blackHoleScaleMin": 12.2,
+    "blackHoleScaleMax": 13.8,
+    "planetMassMultiplier": 0.05,
+    "blackHoleMassMultiplier": 30.0
+  },
+  "asteroids": {
+    "minCount": 4,
+    "maxCount": 8,
+    "minSize": 0.3,
+    "maxSize": 0.7,
+    "orbitDistanceMin": 1.5,
+    "orbitDistanceMax": 4.0,
+    "orbitSpeedMin": 0.2,
+    "orbitSpeedMax": 0.8,
+    "selfRotationSpeed": 1.5,
+    "ruggedness": 0.15
+  },
+  "grid": {
+    "noiseAmp": 3.0,
+    "noiseFreq": 0.02,
+    "flowSpeedMult": 15.0,
+    "flowStrengthMult": 15.0
+  }
+}
