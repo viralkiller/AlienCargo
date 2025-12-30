@@ -1,6 +1,7 @@
 {
   "ship": {
     "baseSpeed": 70,
+    "boostSpeed": 140,
     "brakePower": 80,
     "hoverOffset": 4.0,
     "maxLateralSpeed": 550,
@@ -20,7 +21,7 @@
     "radiusMin": 12.0,
     "radiusMax": 25.0,
     "yVariation": 0.0,
-    "massMultiplier": 1.0
+    "massMultiplier": 0.3
   },
   "blackholes": {
     "chance": 0.08,
@@ -44,7 +45,8 @@
     "maxSectorAsteroids": 8
   },
   "grid": {
-    "softening": 25.0,
-    "depth": 3.0
+    "softening": 30.0,
+    "depth": 1.5,
+    "scale": 0.15
   }
 }

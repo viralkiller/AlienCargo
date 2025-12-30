@@ -17,12 +17,25 @@ export function updateShip(ship, camera, renderer, dt, time, activePlanets, conf
   if (ship.state.cursorY === undefined) ship.state.cursorY = by - ship.state.boxHeight * 0.35;
   if (ship.state.velX === undefined) ship.state.velX = 0;
 
-  // --- 1. FORWARD ---
+  // --- 1. FORWARD MOVEMENT ---
+  // Defaults
   let targetForward = conf.baseSpeed;
+  const boostSpeed = conf.boostSpeed || 120; // Default boost
+
   if (input.keys.has("ArrowDown")) {
+    // Brake
     ship.state.speedPx -= conf.brakePower * dt;
     if (ship.state.speedPx < 0) ship.state.speedPx = 0;
-  } else {
+  }
+  else if (input.keys.has("ArrowUp")) {
+    // [NEW] Boost
+    targetForward = boostSpeed;
+    const diff = targetForward - ship.state.speedPx;
+    // Accelerate faster when boosting
+    ship.state.speedPx += diff * 3.0 * dt;
+  }
+  else {
+    // Cruising (Auto acceleration to base speed)
     const diff = targetForward - ship.state.speedPx;
     ship.state.speedPx += diff * 2.0 * dt;
   }
@@ -39,7 +52,7 @@ export function updateShip(ship, camera, renderer, dt, time, activePlanets, conf
   const alpha = 1.0 - Math.exp(-rate * dt);
   ship.state.velX += (targetVelX - ship.state.velX) * alpha;
 
-  // --- 3. BOUNDARY (Box Clamp) ---
+  // --- 3. BOUNDARY ---
   const halfBox = ship.state.boxWidth / 2;
   const minX = cx - halfBox;
   const maxX = cx + halfBox;
@@ -48,18 +61,18 @@ export function updateShip(ship, camera, renderer, dt, time, activePlanets, conf
 
   if (ship.state.cursorX < minX) {
       ship.state.cursorX = minX;
-      ship.state.velX *= -0.2; // Softer bounce
+      ship.state.velX *= -0.2;
   }
   if (ship.state.cursorX > maxX) {
       ship.state.cursorX = maxX;
-      ship.state.velX *= -0.2; // Softer bounce
+      ship.state.velX *= -0.2;
   }
 
   const minY = by - ship.state.boxHeight;
   const maxY = by;
   ship.state.cursorY = Math.max(minY, Math.min(maxY, ship.state.cursorY));
 
-  // --- 4. RAYCAST ---
+  // --- 4. RAYCAST & POSITION ---
   const ndcX = Math.max(-1, Math.min(1, (ship.state.cursorX / w) * 2 - 1));
   const ndcY = -(ship.state.cursorY / h) * 2 + 1;
 
@@ -75,14 +88,12 @@ export function updateShip(ship, camera, renderer, dt, time, activePlanets, conf
     ship.mesh.position.set(targetX, h1 + conf.hoverOffset, newZ);
     ship.state.y = h1 + conf.hoverOffset;
 
-    // --- 5. VISUALS: Smoother Banking ---
+    // Visuals
     const bankFactor = THREE.MathUtils.clamp(ship.state.velX / conf.maxLateralSpeed, -1, 1);
-
     const targetRoll = -bankFactor * 0.78;
     const targetYaw = (Math.PI / 4) - (bankFactor * 0.4);
-
-    // [SMOOTH] Reduced from 10.0 to 4.0 for weightier feel
     const rotLerp = 4.0 * dt;
+
     ship.mesh.rotation.z += (targetRoll - ship.mesh.rotation.z) * rotLerp;
     ship.mesh.rotation.y += (targetYaw - ship.mesh.rotation.y) * rotLerp;
   }

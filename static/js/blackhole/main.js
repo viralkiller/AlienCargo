@@ -7,12 +7,13 @@ import { updateShip } from "./input/ship_controls.js";
 import { initOverlay } from "./phaser/phaser_overlay.js";
 import { setupResize } from "./shared/resize.js";
 import { updateChaseCamera } from "./input/camera_controls.js";
+import { input } from "./input/input_state.js"; // [NEW] Import input state
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 
 // --- TOOLBOX GENERATOR ---
 function createToolbox(config) {
     const container = document.getElementById("toolbox-content");
-    if (!container) return; // Robustness check
+    if (!container) return;
     container.innerHTML = "";
 
     function walk(obj, path = []) {
@@ -67,22 +68,23 @@ function createToolbox(config) {
 async function boot() {
   console.log("[BOOT] Fetching tuning...");
 
+  // Default config
   let config = {
       ship: {
           baseSpeed: 70,
+          boostSpeed: 120, // [NEW]
           brakePower: 80,
           hoverOffset: 4.0,
           maxLateralSpeed: 550,
           lateralAccel: 25.0,
           lateralFriction: 8.0,
-          boxWidth: 360,
-          boundaryEdge: 350,
+          boxWidth: 520,
+          boundaryEdge: 510,
           boundaryStrength: 40.0
       },
       universe: { sectorSize: 300, voidChance: 0.1 },
-      grid: { softening: 25.0, depth: 3.0 },
-      // Defaults to ensure load even if fetch fails
-      planets: { minCount: 1, maxCount: 2, radiusMin: 12, radiusMax: 25, massMultiplier: 1.0 },
+      grid: { softening: 30.0, depth: 1.5, scale: 0.15 }, // [TUNED]
+      planets: { minCount: 1, maxCount: 2, radiusMin: 12, radiusMax: 25, massMultiplier: 0.3 }, // [TUNED]
       blackholes: { chance: 0.08, radiusMin: 20, radiusMax: 35, massMultiplier: 1.5 },
       asteroids: { minSectorAsteroids: 3, maxSectorAsteroids: 8 }
   };
@@ -92,17 +94,13 @@ async function boot() {
       if(configRes.ok) config = await configRes.json();
   } catch(e) { console.warn("Using default tuning"); }
 
-  // 1. Setup Toolbox
   createToolbox(config);
 
-  // 2. Input Listeners
   window.addEventListener("keydown", (e) => {
-      // Toggle Toolbox
       if (e.key === '1') {
           const box = document.getElementById("toolbox");
           if (box) box.style.display = box.style.display === "block" ? "none" : "block";
       }
-      // Restart Game on Enter
       if (e.key === 'Enter' && isGameOver) {
           window.location.reload();
       }
@@ -122,6 +120,12 @@ async function boot() {
 
   const { mesh: gridMesh, uniforms } = createGrid(scene, config.grid);
   const ship = createShip(scene);
+
+  // Hide the 3D ship mesh visually, but keep it for physics/logic?
+  // User said "Keep the 3d pyramid as is". We will keep it visible for now
+  // or you can set ship.mesh.visible = false if you only want the sprite.
+  // ship.mesh.visible = false;
+
   const universe = new Universe(scene, uniforms, config);
 
   if(config.ship.boxWidth) ship.state.boxWidth = config.ship.boxWidth;
@@ -132,12 +136,22 @@ async function boot() {
   let last = performance.now();
   let isGameOver = false;
 
+  // Reusable vector for projection
+  const _tempV = new THREE.Vector3();
+
   function loop(t) {
     if (isGameOver) return;
     const dt = Math.min(0.033, (t - last) / 1000);
     last = t;
 
     if(config.ship.boxWidth) ship.state.boxWidth = config.ship.boxWidth;
+
+    // Grid Uniform Updates
+    if (config.grid) {
+        if (config.grid.softening !== undefined) uniforms.uSoftening.value = config.grid.softening;
+        if (config.grid.depth !== undefined) uniforms.uDepth.value = config.grid.depth;
+        if (config.grid.scale !== undefined) uniforms.uGridScale.value = config.grid.scale;
+    }
 
     uniforms.uTime.value += dt;
     const globalTime = uniforms.uTime.value;
@@ -148,7 +162,23 @@ async function boot() {
 
     universe.update(ship.mesh, dt, globalTime);
 
-    // Collision Checks
+    // [NEW] Sync Phaser Sprite to 3D Position
+    if (phaserGame && phaserGame.updateShipVisuals) {
+        // 1. Get World Pos
+        ship.mesh.getWorldPosition(_tempV);
+        // 2. Project to Normalized Device Coords (-1 to +1)
+        _tempV.project(camera);
+        // 3. Convert to Screen Coords
+        const x = (_tempV.x * .5 + .5) * canvas.clientWidth;
+        const y = (_tempV.y * -.5 + .5) * canvas.clientHeight;
+
+        // 4. Check Burner State
+        const isBurnerOn = input.keys.has("ArrowUp");
+
+        phaserGame.updateShipVisuals(x, y, isBurnerOn);
+    }
+
+    // Threats
     const threats = [];
     universe.activePlanets.forEach(p => {
         if (p.userData.moons) threats.push(...p.userData.moons);
