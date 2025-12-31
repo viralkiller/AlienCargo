@@ -1,4 +1,4 @@
-Aggregated on: 2025-12-30 11:57:07
+Aggregated on: 2025-12-30 12:44:22
 ================================================================================
 Project Directory Tree:
 /
@@ -28,8 +28,11 @@ Project Directory Tree:
 │   │       │   ├── three_boot.js
 │   │       │   └── universe.js
 │   │       └── main.js
-│   └── json
-│       └── tuning.json
+│   ├── json
+│   │   └── tuning.json
+│   └── png
+│       ├── ship_burners.png
+│       └── ship_off.png
 ├── templates
 │   └── index.html
 ├── .bashrc
@@ -45,7 +48,7 @@ Project Directory Tree:
 ├── project_directory_full_code_1.txt
 └── README.txt
 
-11 directories, 31 files
+12 directories, 33 files
 ================================================================================
 
 [-] This file: equations.md | Contents:
@@ -77,7 +80,90 @@ Imagine a calm lake representing empty space.
 2. Immediately, a drain opens at the bottom of the bowling ball.
 3. The water (spacetime) begins flowing radially toward the ball from all directions to exit the drain.
 4. A ping pong ball placed nearby will drift toward the bowling ball. It isn't feeling a "force"; it is simply floating in water that is moving toward a drain.
-Would you like me to explain what happens in this model when the flow speed exceeds the speed of light (a black hole)?
+-------------------------------------------------------
+This is a classic problem in fluid dynamics simulations for games. Since the planet is a "sink" deleting the grid, you need a "source" to maintain the medium.
+If you don't replace the spacetime, your grid will simply stretch until it tears or looks distorted. Here is how to implement the **"Infinite River"** loop in a game engine (like Unity or Unreal).
+### The Core Concept: The "Spacetime Recycler"
+You don't want to actually create and destroy objects constantly (which causes lag). Instead, you use **Object Pooling**. When a unit of spacetime (a grid node, a vertex, or a particle) falls into the planet, you teleport it back to the edge of the map.
+### 1. The Algorithm (The Logic Loop)
+Imagine your game world is a large circle with the planet in the center.
+1. **Initialization:** Create a dense grid of points (or a mesh) covering the screen.
+2. **The Flow (Update Loop):** Every frame, move every point closer to the planet using the River Model velocity formula:
+`velocity = -1 * direction_to_planet * sqrt(2 * G * Mass / distance)`
+3. **The Sink (Death):** Check if a point is inside the planet (distance < planet radius).
+4. **The Source (Rebirth):** If a point hits the sink, **teleport** it instantly to a random position on the remote outer edge of the map (the "Source Ring").
+### 2. Implementation Strategy: The "Stretchy Sheet" Problem
+There is a tricky issue: As points move inward, they get crowded together near the planet (high density) and spread far apart near the edges (low density).
+To fix this and make it look like a smooth, continuous liquid, you have two main implementation paths:
+#### Option A: The Particle Approach (Best for 2D or stylized 3D)
+You don't render a connected grid lines. You render "dust" or "stars" floating in the spacetime fluid.
+* **Behavior:** Thousands of particles float inward.
+* **The Trick:** When a particle respawns at the edge, give it a random offset so it doesn't look like a repeating pattern.
+* **Visuals:** This creates a *Star Wars* hyperdrive effect, but moving *into* the planet.
+#### Option B: The Dynamic Mesh (Best for "Grid" visuals)
+If you want to see actual grid lines warping, you cannot just teleport vertices, or you will get jagged lines crossing the screen. You need a **vertex shader** or a **scrolling texture**.
+**The Shader Trick (Zero CPU Cost):**
+Instead of moving actual geometry, you move the *texture coordinates* (UVs).
+1. Map a grid texture onto a flat plane.
+2. In the Pixel Shader, calculate the distance of that pixel from the planet center.
+3. Offset the UV lookup coordinate based on `Time` and that `Distance`.
+4. `UV.x += Time * Speed * (1/Distance)`
+5. Because textures repeat (tile), "new" grid lines will naturally appear at the edges and disappear into the center without you needing to code any spawning logic.
+### 3. Code Example (C# / Unity Style)
+Here is a script for **Option A (Physical Nodes)**, as it is easier to interact with gameplay mechanics (like a ship riding the current).
+```csharp
+using UnityEngine;
+public class SpacetimeRiver : MonoBehaviour
+{
+    public Transform planet;     // The sink
+    public int nodeCount = 500;  // How many spacetime "chunks"
+    public float mapRadius = 50.0f;
+    public float gravityStrength = 10.0f;
+    // The "Pool" of spacetime nodes
+    private GameObject[] nodes;
+    public GameObject nodePrefab; // A small dot or grid intersection sprite
+    void Start() {
+        nodes = new GameObject[nodeCount];
+        for(int i = 0; i < nodeCount; i++) {
+            // Spawn initially at random locations within the circle
+            Vector2 randomPos = Random.insideUnitCircle * mapRadius;
+            nodes[i] = Instantiate(nodePrefab, randomPos, Quaternion.identity);
+        }
+    }
+    void Update() {
+        foreach(var node in nodes) {
+            Vector3 direction = planet.position - node.transform.position;
+            float distance = direction.magnitude;
+            // 1. CALCULATE RIVER VELOCITY (The Flow)
+            // v = -sqrt(2GM/r). We simplify 2GM to 'gravityStrength'
+            // We clamp distance to avoid divide by zero errors
+            float speed = Mathf.Sqrt(gravityStrength / Mathf.Max(distance, 0.1f));
+            // Normalize direction and apply speed
+            Vector3 velocity = direction.normalized * speed;
+            // Move the node
+            node.transform.position += velocity * Time.deltaTime;
+            // 2. THE SINK (Check if consumed)
+            if (distance < 1.0f) { // Assuming planet radius is 1
+                RespawnAtEdge(node);
+            }
+        }
+    }
+    void RespawnAtEdge(GameObject node) {
+        // 3. THE SOURCE (Spawn from grid edges)
+        // Pick a random angle on the outer circle
+        float angle = Random.Range(0f, 360f) * Mathf.DegToRad;
+        Vector3 newPos = new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0) * mapRadius;
+        // Add the planet's position offset if the planet moves
+        node.transform.position = planet.position + newPos;
+    }
+}
+```
+### 4. Handling "Conservation of Spacetime"
+If you spawn strictly at the edge, you might notice the grid looks "stretched" (low density) just inside the spawn ring.
+To fix this in a high-fidelity simulation, you use **Flux Balancing**:
+* The rate of nodes dying in the center = The rate of nodes spawning at the edge.
+* However, because the edge has a huge circumference and the sink is small, nodes at the edge should move *very slowly*, and accelerate as they get closer.
+* The math I provided above handles this naturally! The velocity is low at large  and high at small . This automatically keeps the visual density of the grid somewhat consistent, mimicking an incompressible fluid.
 ================================================================================
 
 [-] This file: general.md | Contents:
@@ -183,12 +269,24 @@ export function updateShip(ship, camera, renderer, dt, time, activePlanets, conf
   if (ship.state.cursorX === undefined) ship.state.cursorX = cx;
   if (ship.state.cursorY === undefined) ship.state.cursorY = by - ship.state.boxHeight * 0.35;
   if (ship.state.velX === undefined) ship.state.velX = 0;
-  // --- 1. FORWARD ---
+  // --- 1. FORWARD MOVEMENT ---
+  // Defaults
   let targetForward = conf.baseSpeed;
+  const boostSpeed = conf.boostSpeed || 120; // Default boost
   if (input.keys.has("ArrowDown")) {
+    // Brake
     ship.state.speedPx -= conf.brakePower * dt;
     if (ship.state.speedPx < 0) ship.state.speedPx = 0;
-  } else {
+  }
+  else if (input.keys.has("ArrowUp")) {
+    // [NEW] Boost
+    targetForward = boostSpeed;
+    const diff = targetForward - ship.state.speedPx;
+    // Accelerate faster when boosting
+    ship.state.speedPx += diff * 3.0 * dt;
+  }
+  else {
+    // Cruising (Auto acceleration to base speed)
     const diff = targetForward - ship.state.speedPx;
     ship.state.speedPx += diff * 2.0 * dt;
   }
@@ -201,23 +299,23 @@ export function updateShip(ship, camera, renderer, dt, time, activePlanets, conf
   const rate = isAccelerating ? conf.lateralAccel : conf.lateralFriction;
   const alpha = 1.0 - Math.exp(-rate * dt);
   ship.state.velX += (targetVelX - ship.state.velX) * alpha;
-  // --- 3. BOUNDARY (Box Clamp) ---
+  // --- 3. BOUNDARY ---
   const halfBox = ship.state.boxWidth / 2;
   const minX = cx - halfBox;
   const maxX = cx + halfBox;
   ship.state.cursorX += ship.state.velX * dt;
   if (ship.state.cursorX < minX) {
       ship.state.cursorX = minX;
-      ship.state.velX *= -0.2; // Softer bounce
+      ship.state.velX *= -0.2;
   }
   if (ship.state.cursorX > maxX) {
       ship.state.cursorX = maxX;
-      ship.state.velX *= -0.2; // Softer bounce
+      ship.state.velX *= -0.2;
   }
   const minY = by - ship.state.boxHeight;
   const maxY = by;
   ship.state.cursorY = Math.max(minY, Math.min(maxY, ship.state.cursorY));
-  // --- 4. RAYCAST ---
+  // --- 4. RAYCAST & POSITION ---
   const ndcX = Math.max(-1, Math.min(1, (ship.state.cursorX / w) * 2 - 1));
   const ndcY = -(ship.state.cursorY / h) * 2 + 1;
   ray.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
@@ -229,11 +327,10 @@ export function updateShip(ship, camera, renderer, dt, time, activePlanets, conf
     const newZ = currentZ - ship.state.speedPx * dt;
     ship.mesh.position.set(targetX, h1 + conf.hoverOffset, newZ);
     ship.state.y = h1 + conf.hoverOffset;
-    // --- 5. VISUALS: Smoother Banking ---
+    // Visuals
     const bankFactor = THREE.MathUtils.clamp(ship.state.velX / conf.maxLateralSpeed, -1, 1);
     const targetRoll = -bankFactor * 0.78;
     const targetYaw = (Math.PI / 4) - (bankFactor * 0.4);
-    // [SMOOTH] Reduced from 10.0 to 4.0 for weightier feel
     const rotLerp = 4.0 * dt;
     ship.mesh.rotation.z += (targetRoll - ship.mesh.rotation.z) * rotLerp;
     ship.mesh.rotation.y += (targetYaw - ship.mesh.rotation.y) * rotLerp;
@@ -251,6 +348,7 @@ import { updateShip } from "./input/ship_controls.js";
 import { initOverlay } from "./phaser/phaser_overlay.js";
 import { setupResize } from "./shared/resize.js";
 import { updateChaseCamera } from "./input/camera_controls.js";
+import { input } from "./input/input_state.js"; // [NEW] Import input state
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 // --- TOOLBOX GENERATOR ---
 function createToolbox(config) {
@@ -301,9 +399,11 @@ function createToolbox(config) {
 // --- MAIN BOOT ---
 async function boot() {
   console.log("[BOOT] Fetching tuning...");
+  // Default config
   let config = {
       ship: {
           baseSpeed: 70,
+          boostSpeed: 120, // [NEW]
           brakePower: 80,
           hoverOffset: 4.0,
           maxLateralSpeed: 550,
@@ -314,8 +414,8 @@ async function boot() {
           boundaryStrength: 40.0
       },
       universe: { sectorSize: 300, voidChance: 0.1 },
-      grid: { softening: 25.0, depth: 3.0, scale: 0.15 },
-      planets: { minCount: 1, maxCount: 2, radiusMin: 12, radiusMax: 25, massMultiplier: 1.0 },
+      grid: { softening: 30.0, depth: 1.5, scale: 0.15 }, // [TUNED]
+      planets: { minCount: 1, maxCount: 2, radiusMin: 12, radiusMax: 25, massMultiplier: 0.3 }, // [TUNED]
       blackholes: { chance: 0.08, radiusMin: 20, radiusMax: 35, massMultiplier: 1.5 },
       asteroids: { minSectorAsteroids: 3, maxSectorAsteroids: 8 }
   };
@@ -345,18 +445,24 @@ async function boot() {
   window.__camera = camera;
   const { mesh: gridMesh, uniforms } = createGrid(scene, config.grid);
   const ship = createShip(scene);
+  // Hide the 3D ship mesh visually, but keep it for physics/logic?
+  // User said "Keep the 3d pyramid as is". We will keep it visible for now
+  // or you can set ship.mesh.visible = false if you only want the sprite.
+  // ship.mesh.visible = false;
   const universe = new Universe(scene, uniforms, config);
   if(config.ship.boxWidth) ship.state.boxWidth = config.ship.boxWidth;
   const phaserGame = initOverlay(ship);
   setupResize(renderer, camera, phaserGame);
   let last = performance.now();
   let isGameOver = false;
+  // Reusable vector for projection
+  const _tempV = new THREE.Vector3();
   function loop(t) {
     if (isGameOver) return;
     const dt = Math.min(0.033, (t - last) / 1000);
     last = t;
     if(config.ship.boxWidth) ship.state.boxWidth = config.ship.boxWidth;
-    // [CHANGED] Live update grid uniforms from config
+    // Grid Uniform Updates
     if (config.grid) {
         if (config.grid.softening !== undefined) uniforms.uSoftening.value = config.grid.softening;
         if (config.grid.depth !== undefined) uniforms.uDepth.value = config.grid.depth;
@@ -368,6 +474,20 @@ async function boot() {
     updateChaseCamera(camera, ship, dt);
     followGridToShip(gridMesh, ship.mesh);
     universe.update(ship.mesh, dt, globalTime);
+    // [NEW] Sync Phaser Sprite to 3D Position
+    if (phaserGame && phaserGame.updateShipVisuals) {
+        // 1. Get World Pos
+        ship.mesh.getWorldPosition(_tempV);
+        // 2. Project to Normalized Device Coords (-1 to +1)
+        _tempV.project(camera);
+        // 3. Convert to Screen Coords
+        const x = (_tempV.x * .5 + .5) * canvas.clientWidth;
+        const y = (_tempV.y * -.5 + .5) * canvas.clientHeight;
+        // 4. Check Burner State
+        const isBurnerOn = input.keys.has("ArrowUp");
+        phaserGame.updateShipVisuals(x, y, isBurnerOn);
+    }
+    // Threats
     const threats = [];
     universe.activePlanets.forEach(p => {
         if (p.userData.moons) threats.push(...p.userData.moons);
@@ -414,25 +534,38 @@ boot();
 
 [-] This file: static/js/blackhole/phaser/phaser_overlay.js | Contents:
 export function initOverlay(ship) {
-  let marker, box, gameOverText, reasonText;
+  let marker, box, gameOverText, reasonText, shipSprite;
+  let sceneContext;
   const game = new Phaser.Game({
     type: Phaser.WEBGL,
     parent: "phaserMount",
     width: innerWidth,
     height: innerHeight,
-    transparent: true, // Crucial for overlay
+    transparent: true,
     scale: { mode: Phaser.Scale.RESIZE },
     scene: {
+      preload() {
+        // [NEW] Load Ship Assets
+        this.load.image('ship_off', '/static/png/ship_off.png');
+        this.load.image('ship_burners', '/static/png/ship_burners.png');
+      },
       create() {
+        sceneContext = this;
+        // [NEW] The 2.5D Ship Sprite
+        // Centered anchor (0.5) is default
+        shipSprite = this.add.sprite(0, 0, 'ship_off').setDepth(5);
+        // Adjust scale if your PNGs are huge. Start at 0.5 or 1.0.
+        shipSprite.setScale(0.5);
         // --- HUD ---
         marker = this.add.circle(0, 0, 5, 0xffffff).setDepth(10);
+        marker.setVisible(false); // Hide debug marker now that we have a sprite
         box = this.add.graphics().setDepth(9);
         this.add.text(
           14, 12,
-          "Arrow keys: ship (bottom box)\nAvoid orbiting asteroids\nAvoid Planets",
+          "Arrow keys: Move\nUp: Boost\nDown: Brake",
           { fontSize: "14px", color: "#fff", stroke: "#000", strokeThickness: 2 }
-        );
-        // --- Game Over Screens (Hidden by default) ---
+        ).setDepth(10);
+        // --- Game Over Screens ---
         gameOverText = this.add.text(innerWidth / 2, innerHeight / 2 - 20, "GAME OVER", {
           fontSize: "64px",
           color: "#ff3333",
@@ -446,13 +579,12 @@ export function initOverlay(ship) {
           stroke: "#000",
           strokeThickness: 4
         }).setOrigin(0.5).setVisible(false).setDepth(20);
-        // --- Expose function to Main Loop ---
+        // --- EXPORTS ---
         game.showGameOver = (reason) => {
-          marker.setVisible(false);
+          shipSprite.setVisible(false); // Hide ship on death
           box.setVisible(false);
           gameOverText.setVisible(true);
-          reasonText.setText(reason + "\nReload to Restart").setVisible(true);
-          // Simple bounce animation
+          reasonText.setText(reason + "\nPress ENTER to Restart").setVisible(true);
           this.tweens.add({
             targets: [gameOverText, reasonText],
             scale: { from: 0.8, to: 1 },
@@ -460,18 +592,25 @@ export function initOverlay(ship) {
             ease: 'Bounce.Out'
           });
         };
+        // [NEW] Sync function for Main Loop
+        game.updateShipVisuals = (x, y, isBurnerOn) => {
+            if (!shipSprite) return;
+            shipSprite.setPosition(x, y);
+            // Texture Swap
+            const textureKey = isBurnerOn ? 'ship_burners' : 'ship_off';
+            if (shipSprite.texture.key !== textureKey) {
+                shipSprite.setTexture(textureKey);
+            }
+        };
         console.log("[PHASER] overlay ready");
       },
       update() {
-        // Don't update HUD if game is over (optional preference)
         if (gameOverText.visible) return;
-        const v = ship.mesh.position.clone().project(window.__camera);
+        // Red Box Draw
         const w = window.innerWidth;
         const h = window.innerHeight;
-        marker.setPosition((v.x * 0.5 + 0.5) * w, (-v.y * 0.5 + 0.5) * h);
         const cx = w / 2;
         const by = h - ship.state.boxBottom;
-        // Red Control Box
         box.clear().lineStyle(2, 0xff0000, 0.6).strokeRect(
           cx - ship.state.boxWidth / 2,
           by - ship.state.boxHeight,

@@ -7,20 +7,17 @@ import { updateShip } from "./input/ship_controls.js";
 import { initOverlay } from "./phaser/phaser_overlay.js";
 import { setupResize } from "./shared/resize.js";
 import { updateChaseCamera } from "./input/camera_controls.js";
-import { input } from "./input/input_state.js"; // [NEW] Import input state
+import { input } from "./input/input_state.js";
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 
-// --- TOOLBOX GENERATOR ---
 function createToolbox(config) {
     const container = document.getElementById("toolbox-content");
     if (!container) return;
     container.innerHTML = "";
-
     function walk(obj, path = []) {
         for (const key in obj) {
             const val = obj[key];
             const currentPath = [...path, key];
-
             if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
                 const group = document.createElement("div");
                 group.className = "control-group";
@@ -31,30 +28,25 @@ function createToolbox(config) {
             else if (typeof val === 'number') {
                 const row = document.createElement("div");
                 row.className = "slider-row";
-
                 let min = 0;
                 let max = val > 1 ? val * 4 : 2;
                 let step = val % 1 !== 0 || val < 5 ? 0.01 : 1;
                 if (val === 0) max = 100;
-
                 const label = document.createElement("div");
                 label.className = "slider-label";
                 label.innerHTML = `<span>${key}</span><span id="disp-${currentPath.join('-')}">${val.toFixed(2)}</span>`;
-
                 const input = document.createElement("input");
                 input.type = "range";
                 input.min = min;
                 input.max = max;
                 input.step = step;
                 input.value = val;
-
                 input.oninput = (e) => {
                     const v = parseFloat(e.target.value);
                     obj[key] = v;
                     const disp = document.getElementById(`disp-${currentPath.join('-')}`);
                     if(disp) disp.innerText = v.toFixed(2);
                 };
-
                 row.appendChild(label);
                 row.appendChild(input);
                 container.appendChild(row);
@@ -64,17 +56,15 @@ function createToolbox(config) {
     walk(config);
 }
 
-// --- MAIN BOOT ---
 async function boot() {
   console.log("[BOOT] Fetching tuning...");
 
-  // Default config
   let config = {
       ship: {
           baseSpeed: 70,
-          boostSpeed: 120, // [NEW]
+          boostSpeed: 120,
           brakePower: 80,
-          hoverOffset: 4.0,
+          hoverOffset: 12.0,
           maxLateralSpeed: 550,
           lateralAccel: 25.0,
           lateralFriction: 8.0,
@@ -83,8 +73,9 @@ async function boot() {
           boundaryStrength: 40.0
       },
       universe: { sectorSize: 300, voidChance: 0.1 },
-      grid: { softening: 30.0, depth: 1.5, scale: 0.15 }, // [TUNED]
-      planets: { minCount: 1, maxCount: 2, radiusMin: 12, radiusMax: 25, massMultiplier: 0.3 }, // [TUNED]
+      // [SYNC] Marble Physics Defaults
+      grid: { softening: 5.0, depth: 80.0, scale: 0.35 },
+      planets: { minCount: 1, maxCount: 2, radiusMin: 12, radiusMax: 25, massMultiplier: 0.3 },
       blackholes: { chance: 0.08, radiusMin: 20, radiusMax: 35, massMultiplier: 1.5 },
       asteroids: { minSectorAsteroids: 3, maxSectorAsteroids: 8 }
   };
@@ -121,11 +112,6 @@ async function boot() {
   const { mesh: gridMesh, uniforms } = createGrid(scene, config.grid);
   const ship = createShip(scene);
 
-  // Hide the 3D ship mesh visually, but keep it for physics/logic?
-  // User said "Keep the 3d pyramid as is". We will keep it visible for now
-  // or you can set ship.mesh.visible = false if you only want the sprite.
-  // ship.mesh.visible = false;
-
   const universe = new Universe(scene, uniforms, config);
 
   if(config.ship.boxWidth) ship.state.boxWidth = config.ship.boxWidth;
@@ -135,8 +121,6 @@ async function boot() {
 
   let last = performance.now();
   let isGameOver = false;
-
-  // Reusable vector for projection
   const _tempV = new THREE.Vector3();
 
   function loop(t) {
@@ -146,7 +130,6 @@ async function boot() {
 
     if(config.ship.boxWidth) ship.state.boxWidth = config.ship.boxWidth;
 
-    // Grid Uniform Updates
     if (config.grid) {
         if (config.grid.softening !== undefined) uniforms.uSoftening.value = config.grid.softening;
         if (config.grid.depth !== undefined) uniforms.uDepth.value = config.grid.depth;
@@ -159,26 +142,19 @@ async function boot() {
     updateShip(ship, camera, renderer, dt, globalTime, universe.activePlanets, config.ship);
     updateChaseCamera(camera, ship, dt);
     followGridToShip(gridMesh, ship.mesh);
-
     universe.update(ship.mesh, dt, globalTime);
 
-    // [NEW] Sync Phaser Sprite to 3D Position
     if (phaserGame && phaserGame.updateShipVisuals) {
-        // 1. Get World Pos
         ship.mesh.getWorldPosition(_tempV);
-        // 2. Project to Normalized Device Coords (-1 to +1)
         _tempV.project(camera);
-        // 3. Convert to Screen Coords
+
         const x = (_tempV.x * .5 + .5) * canvas.clientWidth;
         const y = (_tempV.y * -.5 + .5) * canvas.clientHeight;
-
-        // 4. Check Burner State
         const isBurnerOn = input.keys.has("ArrowUp");
 
         phaserGame.updateShipVisuals(x, y, isBurnerOn);
     }
 
-    // Threats
     const threats = [];
     universe.activePlanets.forEach(p => {
         if (p.userData.moons) threats.push(...p.userData.moons);
@@ -193,6 +169,7 @@ async function boot() {
       triggerGameOver("Hull Critical: Asteroid Impact");
       return;
     }
+
     if (checkPlanetCollision(ship, universe.activePlanets)) {
       triggerGameOver("Atmospheric Entry Failed: Planet Collision");
       return;
@@ -208,7 +185,8 @@ async function boot() {
     for (const p of planets) {
       if (Math.abs(p.position.z - shipPos.z) > 40) continue;
       const distSq = shipPos.distanceToSquared(p.position);
-      const r = p.geometry.parameters.radius + shipR;
+      const pRadius = p.userData.r || p.geometry.parameters.radius;
+      const r = (pRadius * 1.5) + shipR;
       if (distSq < r * r) return true;
     }
     return false;

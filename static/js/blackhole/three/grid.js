@@ -4,14 +4,18 @@ import { makeGridMaterial } from "./grid_shader.js";
 export function createGrid(scene) {
   const { material, uniforms } = makeGridMaterial(THREE);
 
-  // [CHANGED] Reduced resolution from 240x240 to 120x120 (x2 less detailed)
-  const geo = new THREE.PlaneGeometry(180, 180, 120, 120);
-
+  // [FIX] Reduced detail x2 (200 -> 100 segments)
+  const geo = new THREE.PlaneGeometry(800, 800, 100, 100);
   geo.rotateX(-Math.PI / 2);
-  const mesh = new THREE.Mesh(geo, material);
-  mesh.position.set(0, 0, 0);
-  scene.add(mesh);
 
+  const mesh = new THREE.Mesh(geo, material);
+
+  // [FIX] Grid at Y=-2.0 to slice the planets
+  mesh.position.set(0, -2.0, 0);
+
+  mesh.frustumCulled = false;
+
+  scene.add(mesh);
   return { mesh, uniforms };
 }
 

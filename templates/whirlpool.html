@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>100k Point Cloud Abyss</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; }
+        canvas { display: block; }
+        #ui-layer {
+            position: absolute; top: 20px; left: 20px;
+            color: #00ffcc; font-family: 'Courier New', Courier, monospace;
+            pointer-events: none; z-index: 10;
+            background: rgba(0,0,0,0.85); padding: 15px; border: 1px solid #00ffcc;
+            min-width: 250px;
+        }
+        .stat-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+        .val { font-weight: bold; }
+    </style>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <h3 style="margin-top:0; border-bottom: 1px solid #444; padding-bottom: 10px;">POINT CLOUD ENGINE</h3>
+        <div class="stat-row">
+            <span class="label">Points:</span>
+            <span class="val" style="color: #00ffcc;">100,000</span>
+        </div>
+        <div class="stat-row">
+            <span class="label">Sinks:</span>
+            <span class="val" id="sink-count">0</span>
+        </div>
+        <div class="stat-row">
+            <span class="label">Frame Time:</span>
+            <span class="val" id="sim-time">0ms</span>
+        </div>
+        <small style="color: #666; display: block; margin-top: 10px;">Left Click: Create Singularity</small>
+    </div>
+
+    <script>
+    // --- CONFIGURATION ---
+    const CONFIG = {
+        pointCount: 100000,     // Total particles
+        worldSize: 300,         // Width of the simulation area
+        sinkRadius: 5.0,        // Death zone
+        gravity: 140.0,         // Pull strength
+        friction: 0.95,         // Drag
+        pointSize: 1.5          // Base size of a pixel
+    };
+
+    // --- THREE.JS ENGINE ---
+    class PointCloudOcean {
+        constructor() {
+            this.scene = new THREE.Scene();
+            this.scene.background = new THREE.Color(0x020202);
+            this.scene.fog = new THREE.FogExp2(0x020202, 0.008);
+
+            this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            this.camera.position.set(0, 140, 140);
+            this.camera.lookAt(0, 0, 0);
+
+            this.renderer = new THREE.WebGLRenderer({ antialias: false });
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+            this.renderer.setPixelRatio(window.devicePixelRatio); // Sharp points on retina
+            document.body.appendChild(this.renderer.domElement);
+
+            this.raycaster = new THREE.Raycaster();
+            this.planeMat = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+            this.sinks = [];
+
+            this.initPoints();
+        }
+
+        initPoints() {
+            // SINGLE BUFFER ARCHITECTURE
+            // We don't need separate physics arrays anymore.
+            // We can read/write directly to the render buffer for maximum speed.
+
+            this.geometry = new THREE.BufferGeometry();
+
+            // Buffers
+            this.positions = new Float32Array(CONFIG.pointCount * 3);
+            this.colors = new Float32Array(CONFIG.pointCount * 3);
+            this.velocities = new Float32Array(CONFIG.pointCount * 3); // Physics state
+
+            // Initialize
+            for (let i = 0; i < CONFIG.pointCount; i++) {
+                this.spawnPoint(i, true);
+
+                // Base Color (Cyan/Blue mix)
+                this.colors[i*3] = 0.0;     // R
+                this.colors[i*3+1] = 0.7;   // G
+                this.colors[i*3+2] = 1.0;   // B
+            }
+
+            this.geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
+            this.geometry.setAttribute('color', new THREE.BufferAttribute(this.colors, 3));
+
+            // Material
+            const material = new THREE.PointsMaterial({
+                size: CONFIG.pointSize,
+                vertexColors: true,
+                sizeAttenuation: true, // Points get smaller when far away
+                transparent: true,
+                opacity: 0.8,
+                blending: THREE.AdditiveBlending
+            });
+
+            this.points = new THREE.Points(this.geometry, material);
+            this.scene.add(this.points);
+        }
+
+        spawnPoint(i, randomStart = false) {
+            const half = CONFIG.worldSize / 2;
+            let x, z;
+
+            if (randomStart) {
+                x = (Math.random() - 0.5) * CONFIG.worldSize;
+                z = (Math.random() - 0.5) * CONFIG.worldSize;
+            } else {
+                const side = Math.floor(Math.random() * 4);
+                const offset = (Math.random() - 0.5) * CONFIG.worldSize;
+                const buffer = 5;
+                switch(side) {
+                    case 0: x = offset; z = -half - buffer; break;
+                    case 1: x = offset; z = half + buffer; break;
+                    case 2: x = -half - buffer; z = offset; break;
+                    case 3: x = half + buffer; z = offset; break;
+                }
+            }
+
+            const ix = i * 3;
+            this.positions[ix] = x;
+            this.positions[ix+1] = 0;
+            this.positions[ix+2] = z;
+
+            // Reset Velocity
+            this.velocities[ix] = (Math.random()-0.5) * 0.1;
+            this.velocities[ix+1] = 0;
+            this.velocities[ix+2] = (Math.random()-0.5) * 0.1;
+        }
+
+        addSink(ndc) {
+            this.raycaster.setFromCamera(ndc, this.camera);
+            const target = new THREE.Vector3();
+            this.raycaster.ray.intersectPlane(this.planeMat, target);
+            if (target) {
+                this.sinks.push({ x: target.x, z: target.z });
+                return true;
+            }
+            return false;
+        }
+
+        update(time) {
+            const t = time * 0.001;
+            const start = performance.now();
+            const activeSinks = this.sinks.length > 0;
+            const dt = 0.016; // Fixed timestep
+
+            // Direct buffer access
+            const pos = this.positions;
+            const vel = this.velocities;
+            const col = this.colors;
+
+            for (let i = 0; i < CONFIG.pointCount; i++) {
+                let ix = i * 3;
+                let iy = ix + 1;
+                let iz = ix + 2;
+
+                let px = pos[ix];
+                let py = pos[iy];
+                let pz = pos[iz];
+                let vx = vel[ix];
+                let vz = vel[iz];
+
+                if (activeSinks) {
+                    let closestDistSq = Infinity;
+
+                    for (let s of this.sinks) {
+                        const dx = s.x - px;
+                        const dz = s.z - pz;
+                        const distSq = dx*dx + dz*dz;
+                        if (distSq < closestDistSq) closestDistSq = distSq;
+
+                        // Gravity Logic
+                        const dist = Math.sqrt(distSq);
+                        // Force = G / (dist^1.5) - stronger dropoff than square, but strong pull close
+                        const force = CONFIG.gravity / (dist * Math.sqrt(dist) + 0.1);
+
+                        const nx = dx / dist; // normalized x
+                        const nz = dz / dist; // normalized z
+
+                        // Radial Pull + Tangential Swirl
+                        // We mix them: 70% Pull, 30% Swirl
+                        vx += (nx * force * 0.7 - nz * force * 0.3) * dt;
+                        vz += (nz * force * 0.7 + nx * force * 0.3) * dt;
+                    }
+
+                    vx *= CONFIG.friction;
+                    vz *= CONFIG.friction;
+                    px += vx;
+                    pz += vz;
+
+                    // Depth Calculation (The "Funnel")
+                    py = -280.0 / (closestDistSq + 5.0);
+
+                    // Dynamic Color based on depth
+                    // Deep points turn purple/red, surface is blue
+                    if (py < -10) {
+                        col[ix] = 1.0;   // R increases
+                        col[iy] = 0.0;   // G decreases
+                        col[iz] = 0.5;   // B decreases
+                    } else {
+                        col[ix] = 0.0;
+                        col[iy] = 0.7;
+                        col[iz] = 1.0;
+                    }
+
+                    // Respawn
+                    if (closestDistSq < CONFIG.sinkRadius * CONFIG.sinkRadius) {
+                        this.spawnPoint(i);
+                        // Read new values immediately
+                        px = pos[ix]; py = 0; pz = pos[iz];
+                        vx = vel[ix]; vz = vel[iz];
+                    }
+
+                } else {
+                    // Passive wave
+                    py = Math.sin(px * 0.1 + t) * Math.cos(pz * 0.1 + t) * 2.0;
+                }
+
+                // Boundary check
+                if (Math.abs(px) > CONFIG.worldSize * 0.6 || Math.abs(pz) > CONFIG.worldSize * 0.6) {
+                    this.spawnPoint(i);
+                    px = pos[ix]; py = 0; pz = pos[iz];
+                }
+
+                // Write back
+                pos[ix] = px;
+                pos[iy] = py;
+                pos[iz] = pz;
+                vel[ix] = vx;
+                vel[iz] = vz;
+            }
+
+            this.geometry.attributes.position.needsUpdate = true;
+            this.geometry.attributes.color.needsUpdate = true;
+
+            const end = performance.now();
+            document.getElementById('sim-time').innerText = (end - start).toFixed(1) + "ms";
+
+            this.renderer.render(this.scene, this.camera);
+        }
+
+        resize(w, h) {
+            this.camera.aspect = w / h;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(w, h);
+        }
+    }
+
+    // --- PHASER CONTROLLER ---
+    class MainScene extends Phaser.Scene {
+        constructor() { super({ key: 'MainScene' }); }
+
+        create() {
+            this.ocean = new PointCloudOcean();
+
+            this.input.on('pointerdown', (pointer) => {
+                const ndc = {
+                    x: (pointer.x / window.innerWidth) * 2 - 1,
+                    y: -(pointer.y / window.innerHeight) * 2 + 1
+                };
+                if (this.ocean.addSink(ndc)) {
+                    document.getElementById('sink-count').innerText = this.ocean.sinks.length;
+                }
+            });
+
+            window.addEventListener('resize', () => {
+                this.ocean.resize(window.innerWidth, window.innerHeight);
+                this.scale.resize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        update(time, delta) {
+            if (this.ocean) this.ocean.update(time);
+        }
+    }
+
+    const config = {
+        type: Phaser.WEBGL,
+        width: window.innerWidth,
+        height: window.innerHeight,
+        transparent: true,
+        scene: MainScene,
+        canvasStyle: "position: absolute; top: 0; left: 0; z-index: 5;"
+    };
+
+    const game = new Phaser.Game(config);
+
+    </script>
+</body>
+</html>

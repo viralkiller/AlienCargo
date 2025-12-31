@@ -14,8 +14,10 @@ export class Universe {
     this.sectorData = new Map();
     this.sectorMeshes = new Map();
     this.pendingKeys = new Set();
+
     this.currentRowZ = -999999;
     this.shipPos = new THREE.Vector3();
+
     this.activePlanets = [];
     this.freeAsteroids = [];
   }
@@ -44,6 +46,7 @@ export class Universe {
   async updateCorridor(currentZ) {
     const keysNeeded = [];
     const forwardView = 2;
+
     for (let z = currentZ; z <= currentZ + forwardView; z++) {
         for (let x = -1; x <= 1; x++) {
             keysNeeded.push(`${x}:${z}`);
@@ -85,6 +88,7 @@ export class Universe {
 
   async fetchSectors(keys) {
     keys.forEach(k => this.pendingKeys.add(k));
+
     keys.forEach(key => {
         if (!this.sectorData.has(key)) {
             const generated = this.generateSector(key);
@@ -110,7 +114,6 @@ export class Universe {
 
     // 1. Planets / Blackholes
     const count = Math.floor(rand(pConf.minCount, pConf.maxCount));
-
     for (let i = 0; i < count; i++) {
       const isBlackHole = Math.random() < bConf.chance;
 
@@ -121,20 +124,19 @@ export class Universe {
           r = rand(pConf.radiusMin, pConf.radiusMax);
       }
 
-      // [FIX] Calculate Float Height
-      // Planets float above the grid (y=0).
-      // We set y = radius + small_gap so they sit "on top" of the warp.
-      const floatHeight = r + 2.0;
+      // [CHANGED] Set Y to 0 so the equator sits perfectly on the "flat" grid line
+      const floatHeight = 0.0;
 
       const massScale = isBlackHole ? bConf.massMultiplier : pConf.massMultiplier;
-      const mass = isBlackHole ? (r * r * massScale) : (r * massScale);
+      // Mass usually scales with Volume (r^3), but for game feel we use r^2 or linear
+      const mass = isBlackHole ? (r * 4.0) : (r * 2.5);
 
       const lx = (Math.random() * uConf.sectorSize) - (uConf.sectorSize/2);
       const lz = (Math.random() * uConf.sectorSize) - (uConf.sectorSize/2);
 
       objects.push({
         x: sx * uConf.sectorSize + lx,
-        y: floatHeight, // [FIX] Applied here
+        y: floatHeight,
         z: sz * uConf.sectorSize + lz,
         r: r,
         mass: mass,
@@ -150,7 +152,7 @@ export class Universe {
         const lz = (Math.random() * uConf.sectorSize) - (uConf.sectorSize/2);
         objects.push({
             x: sx * uConf.sectorSize + lx,
-            y: rand(4, 10), // Raised slightly to match new planet heights
+            y: rand(4, 10),
             z: sz * uConf.sectorSize + lz,
             r: rand(0.5, 1.2),
             type: "asteroid"

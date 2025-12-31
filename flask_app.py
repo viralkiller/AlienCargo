@@ -60,6 +60,11 @@ def index():
     logger.info("UI: render index")
     return render_template("index.html")
 
+@app.get("/whirlpool")
+def whirlpool():
+
+    return render_template("whirlpool.html")
+
 @app.get("/api/tuning")
 def get_tuning():
     """Serves the central tuning configuration."""

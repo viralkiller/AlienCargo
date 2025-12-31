@@ -4,22 +4,24 @@ export function makeGridMaterial(THREE) {
   const uniforms = {
     uTime: { value: 0 },
     uGridScale: { value: 0.35 },
-    uLineWidth: { value: 1.5 },
-    uSoftening: { value: 8.0 },
-    uDepth: { value: 20.0 },
+    uLineWidth: { value: 2.0 },
+    // [TUNED] Softening 5.0 = Distinct "Marble" size curve (not too sharp, not too flat)
+    uSoftening: { value: 5.0 },
+    // [TUNED] Depth 80.0 = Very deep heavy weight
+    uDepth: { value: 80.0 },
     uFlowSpeed: { value: 2.0 },
-    uFlowStrength: { value: 1.0 },
+    uFlowStrength: { value: 2.0 }, // Increased flow visual
     uPlanetCount: { value: 0 },
     uPlanetPos: {
       value: Array.from({ length: MAX_PLANETS }, () => new THREE.Vector3(9999, 0, 9999))
     },
     uPlanetMass: { value: new Array(MAX_PLANETS).fill(0) },
-    // Fog Uniforms
     ...THREE.UniformsLib.fog
   };
 
   const material = new THREE.ShaderMaterial({
     uniforms,
+    side: THREE.DoubleSide,
     vertexShader: `
       uniform float uTime;
       uniform float uSoftening;
@@ -49,7 +51,12 @@ export function makeGridMaterial(THREE) {
         }
         return total;
       }
-      float well(vec2 d, float m) { return m / (dot(d,d) + uSoftening); }
+
+      float well(vec2 d, float m) {
+        float distSq = dot(d,d);
+        // [NOTE] 1.0 / sqrt(...) creates the funnel
+        return m / sqrt(distSq + uSoftening);
+      }
 
       void main() {
         vec3 worldPos = (modelMatrix * vec4(position, 1.0)).xyz;
@@ -69,10 +76,8 @@ export function makeGridMaterial(THREE) {
         vWorldXZ = worldPos.xz;
         vWell = w;
 
-        // [FIX] Define mvPosition explicitly for Fog
         vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
         gl_Position = projectionMatrix * mvPosition;
-
         #include <fog_vertex>
       }
     `,
@@ -101,32 +106,44 @@ export function makeGridMaterial(THREE) {
 
       void main() {
         vec2 flow = vec2(0.0);
+
         for (int i = 0; i < ${MAX_PLANETS}; i++) {
           if (i >= uPlanetCount) break;
+
           vec2 d = uPlanetPos[i].xz - vWorldXZ;
-          float r2 = dot(d,d) + uSoftening;
-          vec2 radial = normalize(d + 1e-6);
+          float distSq = dot(d,d) + 1.0;
+          float dist = sqrt(distSq);
+
+          float speed = sqrt(uPlanetMass[i] / dist) * 2.0;
+
+          vec2 radial = normalize(d);
           vec2 tangent = vec2(-radial.y, radial.x);
-          flow += (radial * 0.5 + tangent * 1.5) * (uPlanetMass[i] / r2);
+          vec2 dir = mix(radial, tangent, 0.4);
+
+          flow += dir * speed;
         }
 
         vec2 baseRiver = vec2(0.0, 1.0);
         vec2 finalFlow = baseRiver * 0.2 + flow * uFlowStrength;
         vec2 sampleXZ = vWorldXZ - finalFlow * (uTime * uFlowSpeed);
-
         float line = gridLines(sampleXZ);
-        float glow = clamp(vWell * 8.0, 0.0, 0.8);
-        vec3 col = vec3(line);
-        col += glow * vec3(0.6, 0.8, 1.0);
 
-        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 0.6);
+        vec3 bg = vec3(0.02, 0.02, 0.08);
+
+        // [FIX] Boost glow to make the dip visible
+        float glow = clamp(vWell * 4.0, 0.0, 1.2);
+
+        vec3 col = mix(bg, vec3(1.0), line);
+        // Add cyan glow in the wells
+        col += glow * vec3(0.2, 0.8, 1.0);
+
+        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 
         #include <fog_fragment>
       }
     `,
-    transparent: true,
-    depthWrite: false,
-    depthTest: true,
+    transparent: false,
+    depthWrite: true,
     fog: true
   });
 
