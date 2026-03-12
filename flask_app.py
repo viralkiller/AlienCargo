@@ -60,6 +60,11 @@ def index():
     logger.info("UI: render index")
     return render_template("index.html")
 
+@app.get("/seed_b")
+def seed_b():
+
+    return render_template("seed_b.html")
+
 @app.get("/whirlpool")
 def whirlpool():
 
