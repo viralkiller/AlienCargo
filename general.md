@@ -9,6 +9,7 @@ Arrow keys to move if applicable, WASD for second player if applicable.
 Enter to start game.
 Space to shoot.
 Games should always have a Restart/Go again button if a player gets killed.
+Try and keep game code around 1000 lines max.
 
 ----
 

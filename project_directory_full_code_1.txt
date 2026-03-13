@@ -1,4 +1,4 @@
-Aggregated on: 2026-03-13 16:31:43
+Aggregated on: 2026-03-13 16:52:40
 ================================================================================
 Project Directory Tree:
 /
@@ -7,6 +7,7 @@ Project Directory Tree:
 │   ├── js
 │   ├── json
 │   └── png
+│       ├── spaceship
 │       ├── ship_burners.png
 │       └── ship_off.png
 ├── templates
@@ -23,7 +24,7 @@ Project Directory Tree:
 ├── project_directory_full_code_1.txt
 └── README.txt
 
-6 directories, 14 files
+7 directories, 14 files
 ================================================================================
 
 [-] This file: .pythonstartup.py | Contents:
@@ -37,26 +38,34 @@ import re
 import requests
 from flask import Flask, render_template, request, jsonify
 app = Flask(__name__)
-# Point this directly to your newly built AIManager microservice
+# Point to AI manager microservice.
 AI_MANAGER_URL = "https://aimanager.pythonanywhere.com/process_request"
 @app.route('/')
 def index():
+    # Render main page template.
     return render_template('index.html')
 @app.route('/generate_game', methods=['POST'])
 def generate_game():
     data = request.json
     description = data.get('description', '').strip()
     if not description:
-        return jsonify({"error": "Game description is required"}), 400
+        return jsonify({"error": "Game description required."}), 400
     try:
-        # Strict system prompt mapped to AIManager's "instructions" parameter
+        # System instructions for game generation.
         system_instructions = (
             "You are an expert game developer. Create a single-page HTML game based on the user's description. "
             "Your output must be EXCLUSIVELY valid HTML containing all necessary CSS and JavaScript within it. "
-            "Do not include any markdown formatting like ```html, and do not provide any explanations. "
-            "The game must be fully playable, robust, self-contained, and visually appealing."
+            "CRITICAL REQUIREMENTS: "
+            "1. Standard HTML5 <canvas> centered with 1280x720 resolution. "
+            "2. Arrow keys to move, Enter to start, Space to shoot. "
+            "3. MUST feature a Game Over state with Restart option. "
+            "4. Do NOT load external images, audio, or libraries. "
+            "5. STRICTLY FORBIDDEN: Do NOT use localStorage or sessionStorage. "
+            "6. Do not include markdown formatting like ```html. "
+            "7. CSS MUST include body { margin: 0; padding: 0; overflow: hidden; background-color: #000; } to prevent scrollbars. "
+            "The game must be fully playable and robust."
         )
-        # Payload perfectly mapped to your AIManager's /process_request endpoint
+        # Payload for AIManager endpoint.
         payload = {
             "provider": "anthropic",
             "model_key": "claude-sonnet-4-5-20250929",
@@ -66,25 +75,25 @@ def generate_game():
                 "max_tokens": 8000
             }
         }
-        # Send request to AIManager (allowing 120s for Claude to write the code)
+        # Send request to AI manager.
         response = requests.post(AI_MANAGER_URL, json=payload, timeout=120)
-        # If AIManager returns a 500 or 400, raise it
         response.raise_for_status()
         manager_data = response.json()
-        # Extract the code from the AIManager's "outputs" array
+        # Extract code from response.
         outputs = manager_data.get('outputs', [])
         if not outputs:
-            return jsonify({"error": "AIManager returned an empty response."}), 502
+            return jsonify({"error": "AIManager returned empty response."}), 502
         generated_code = outputs[0]
-        # Fallback cleanup just in case Claude includes markdown despite instructions
+        # Cleanup markdown tags.
         generated_code = re.sub(r'^```html\s*', '', generated_code)
         generated_code = re.sub(r'^```\s*', '', generated_code)
         generated_code = re.sub(r'\s*```$', '', generated_code)
         return jsonify({"game_html": generated_code.strip()})
     except requests.exceptions.RequestException as e:
-        # Catch connection errors, timeouts, or 500s from AIManager
-        return jsonify({"error": f"Failed to communicate with AIManager: {str(e)}"}), 502
+        # Handle connection errors.
+        return jsonify({"error": f"Failed communicating with AIManager: {str(e)}"}), 502
     except Exception as e:
+        # Handle general errors.
         return jsonify({"error": f"Internal formatting error: {str(e)}"}), 500
 if __name__ == '__main__':
     app.run(debug=True)
@@ -106,35 +115,40 @@ if __name__ == '__main__':
             flex-direction: column;
             align-items: center;
             margin: 0;
-            padding: 20px;
+            padding: 10px;
+            height: 100vh;
+            box-sizing: border-box;
+            overflow: hidden;
         }
         h1 {
             color: #00d2ff;
-            margin-bottom: 5px;
+            margin: 5px 0 0 0;
+            font-size: 24px;
         }
         p.subtitle {
             color: #aaaaaa;
-            margin-bottom: 20px;
+            margin: 5px 0 10px 0;
+            font-size: 14px;
         }
         #generator-ui {
             width: 100%;
             max-width: 800px;
             display: flex;
             flex-direction: column;
-            gap: 15px;
-            margin-bottom: 30px;
+            gap: 10px;
+            margin-bottom: 10px;
         }
         textarea {
             width: 100%;
-            height: 120px;
-            padding: 15px;
-            font-size: 16px;
+            height: 60px;
+            padding: 10px;
+            font-size: 14px;
             font-family: inherit;
             background-color: #1e1e1e;
             color: #ffffff;
             border: 1px solid #333;
             border-radius: 8px;
-            resize: vertical;
+            resize: none;
             box-sizing: border-box;
         }
         textarea:focus {
@@ -142,8 +156,8 @@ if __name__ == '__main__':
             border-color: #00d2ff;
         }
         button {
-            padding: 15px;
-            font-size: 18px;
+            padding: 10px;
+            font-size: 16px;
             font-weight: bold;
             cursor: pointer;
             background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
@@ -164,10 +178,18 @@ if __name__ == '__main__':
             cursor: not-allowed;
             transform: none;
         }
-        /* 1280x720 centered container */
+        /* Container scales dynamically. */
+        #game-container {
+            flex: 1;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 0;
+            overflow: hidden;
+        }
+        /* Lock aspect ratio. */
         #game-wrapper {
-            width: 1280px;
-            height: 720px;
             background-color: #000000;
             border: 2px solid #333;
             border-radius: 4px;
@@ -176,6 +198,10 @@ if __name__ == '__main__':
             justify-content: center;
             align-items: center;
             box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            aspect-ratio: 16/9;
+            height: 100%;
+            max-width: 100%;
+            overflow: hidden;
         }
         iframe {
             width: 100%;
@@ -183,20 +209,30 @@ if __name__ == '__main__':
             border: none;
             border-radius: 4px;
             background-color: #000;
+            display: block;
+            overflow: hidden;
         }
+        /* Overlay loading screen. */
         #loading {
             display: none;
             position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000000;
             flex-direction: column;
+            justify-content: center;
             align-items: center;
             gap: 15px;
             color: #00d2ff;
-            font-size: 20px;
+            font-size: 18px;
             font-weight: bold;
+            z-index: 10;
         }
         .spinner {
-            width: 40px;
-            height: 40px;
+            width: 30px;
+            height: 30px;
             border: 4px solid rgba(0, 210, 255, 0.3);
             border-radius: 50%;
             border-top-color: #00d2ff;
@@ -214,76 +250,89 @@ if __name__ == '__main__':
         <textarea id="game-desc" placeholder="Describe your game... (e.g., A top-down space shooter where you defend cargo ships from alien swarms)"></textarea>
         <button id="create-btn">Create Game</button>
     </div>
-    <div id="game-wrapper">
-        <div id="loading">
-            <div class="spinner"></div>
-            <span>Compiling game logic...</span>
+    <div id="game-container">
+        <div id="game-wrapper">
+            <div id="loading">
+                <div class="spinner"></div>
+                <span>Compiling game logic...</span>
+            </div>
+            <iframe id="game-frame" sandbox="allow-scripts" scrolling="no"></iframe>
         </div>
-        <iframe id="game-frame" sandbox="allow-scripts allow-same-origin"></iframe>
     </div>
     <script>
-        const AI_MANAGER_URL = "https://aimanager.pythonanywhere.com/process_request"; // Ensure this matches your backend
+        // Use local Flask API route.
+        const FLASK_API_URL = "/generate_game";
+        // Handle loading locally saved game.
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("LifeCycle Event: DOM Content Loaded.");
+            const savedGame = localStorage.getItem('alien_cargo_last_game');
+            const savedDesc = localStorage.getItem('alien_cargo_last_desc');
+            if (savedDesc) {
+                console.log("Storage Event: Restoring previous game description.");
+                document.getElementById('game-desc').value = savedDesc;
+            }
+            if (savedGame) {
+                console.log("Storage Event: Loading locally saved game HTML.");
+                const iframe = document.getElementById('game-frame');
+                iframe.srcdoc = savedGame;
+            }
+        });
+        // Handle textarea input logging.
+        document.getElementById('game-desc').addEventListener('input', () => {
+             console.log("UI Event: Textarea input modified.");
+        });
+        // Handle button click logic.
         document.getElementById('create-btn').addEventListener('click', async () => {
+            console.log("UI Event: 'Create Game' button clicked.");
             const descInput = document.getElementById('game-desc').value.trim();
+            console.log(`Data Event: Read input. Length: ${descInput.length}`);
             if (!descInput) {
+                console.warn("Validation Event: Empty description blocked.");
                 alert("Please describe your game first!");
                 return;
             }
             const btn = document.getElementById('create-btn');
             const loading = document.getElementById('loading');
             const iframe = document.getElementById('game-frame');
-            // UI State updates
+            // Update UI state.
+            console.log("UI State: Disabling button, showing loader.");
             btn.disabled = true;
             btn.innerText = "Generating...";
-            iframe.style.display = 'none';
             loading.style.display = 'flex';
-            iframe.srcdoc = ""; // Clear previous game
-            // Construct System Instructions to strictly enforce rules
-            const gameInstructions = `You are an expert HTML5 Game Developer. Generate a complete, playable, single-file HTML/JS game.
-CRITICAL REQUIREMENTS:
-1. The game MUST use a standard HTML5 <canvas> centered in the window with EXACTLY 1280x720 resolution.
-2. Controls: Arrow keys to move (WASD for Player 2 if applicable). Enter to start game. Space to shoot/action.
-3. It MUST feature a "Game Over" state with a clear visual "Restart / Go Again" button or key-press instruction.
-4. Do NOT load external images, audio, or libraries. Use vanilla JS and Canvas 2D API with placeholder shapes/colors (rectangles, circles, path drawing).
-5. Output ONLY the raw HTML code starting with <!DOCTYPE html>. Do NOT wrap in markdown \`\`\`html tags. No explanations.`;
-            const payload = {
-                provider: "anthropic",
-                model_key: "claude-sonnet-4-5-20250929", // Reliable for robust single-file code generation
-                query: `User's Game Description: ${descInput}`,
-                parameters: {
-                    task: "text_to_text",
-                    instructions: gameInstructions,
-                    max_tokens: 8192,
-                    budget_tokens: 2048 // Enable thinking for better code architecture
-                }
-            };
+            // Clear previous game.
+            console.log("UI State: Cleared previous iframe source.");
+            iframe.srcdoc = "";
+            // Prepare payload.
+            const payload = { description: descInput };
+            console.log("Network Event: POST request initiated.", FLASK_API_URL);
             try {
-                const response = await fetch(AI_MANAGER_URL, {
+                const response = await fetch(FLASK_API_URL, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
+                console.log(`Network Event: Response received. Status: ${response.status}`);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 const data = await response.json();
-                let generatedCode = data.outputs[0];
-                // Sanitize LLM output in case it still adds markdown formatting
-                if (generatedCode.startsWith("```html")) {
-                    generatedCode = generatedCode.replace(/```html/g, "").replace(/```/g, "").trim();
-                } else if (generatedCode.startsWith("```")) {
-                    generatedCode = generatedCode.replace(/```/g, "").trim();
+                console.log("Data Event: JSON payload parsed successfully.");
+                if (data.error) {
+                    throw new Error(data.error);
                 }
-                // Inject code directly into iframe
-                iframe.srcdoc = generatedCode;
-                iframe.style.display = 'block';
+                // Inject generated game.
+                console.log("UI State: Injecting HTML into iframe.");
+                iframe.srcdoc = data.game_html;
+                // Save to local storage.
+                localStorage.setItem('alien_cargo_last_game', data.game_html);
+                localStorage.setItem('alien_cargo_last_desc', descInput);
+                console.log("Storage Event: Saved game state locally.");
             } catch (error) {
-                console.error("Error communicating with AIManager:", error);
+                console.error("Error Event: API communication failed.", error);
                 alert("Failed to generate game. Check console for details.");
             } finally {
-                // Restore UI State
+                // Restore UI state.
+                console.log("UI State: Restoring interface layout.");
                 btn.disabled = false;
                 btn.innerText = "Create Game";
                 loading.style.display = 'none';

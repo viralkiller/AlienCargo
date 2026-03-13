@@ -17,7 +17,7 @@ def generate_game():
     description = data.get('description', '').strip()
 
     if not description:
-        return jsonify({"error": "Game description is required"}), 400
+        return jsonify({"error": "Game description required."}), 400
 
     try:
         # System instructions for game generation.
@@ -31,6 +31,7 @@ def generate_game():
             "4. Do NOT load external images, audio, or libraries. "
             "5. STRICTLY FORBIDDEN: Do NOT use localStorage or sessionStorage. "
             "6. Do not include markdown formatting like ```html. "
+            "7. CSS MUST include body { margin: 0; padding: 0; overflow: hidden; background-color: #000; } to prevent scrollbars. "
             "The game must be fully playable and robust."
         )
 
@@ -57,7 +58,7 @@ def generate_game():
 
         generated_code = outputs[0]
 
-        # Cleanup markdown tags just in case.
+        # Cleanup markdown tags.
         generated_code = re.sub(r'^```html\s*', '', generated_code)
         generated_code = re.sub(r'^```\s*', '', generated_code)
         generated_code = re.sub(r'\s*```$', '', generated_code)

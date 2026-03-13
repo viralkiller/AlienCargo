@@ -84,6 +84,7 @@
             justify-content: center;
             align-items: center;
             min-height: 0;
+            overflow: hidden;
         }
         /* Lock aspect ratio. */
         #game-wrapper {
@@ -98,6 +99,7 @@
             aspect-ratio: 16/9;
             height: 100%;
             max-width: 100%;
+            overflow: hidden;
         }
         iframe {
             width: 100%;
@@ -105,16 +107,26 @@
             border: none;
             border-radius: 4px;
             background-color: #000;
+            display: block;
+            overflow: hidden;
         }
+        /* Overlay loading screen. */
         #loading {
             display: none;
             position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000000;
             flex-direction: column;
+            justify-content: center;
             align-items: center;
             gap: 15px;
             color: #00d2ff;
             font-size: 18px;
             font-weight: bold;
+            z-index: 10;
         }
         .spinner {
             width: 30px;
@@ -142,12 +154,31 @@
                 <div class="spinner"></div>
                 <span>Compiling game logic...</span>
             </div>
-            <iframe id="game-frame" sandbox="allow-scripts"></iframe>
+            <iframe id="game-frame" sandbox="allow-scripts" scrolling="no"></iframe>
         </div>
     </div>
     <script>
         // Use local Flask API route.
         const FLASK_API_URL = "/generate_game";
+
+        // Handle loading locally saved game.
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("LifeCycle Event: DOM Content Loaded.");
+
+            const savedGame = localStorage.getItem('alien_cargo_last_game');
+            const savedDesc = localStorage.getItem('alien_cargo_last_desc');
+
+            if (savedDesc) {
+                console.log("Storage Event: Restoring previous game description.");
+                document.getElementById('game-desc').value = savedDesc;
+            }
+
+            if (savedGame) {
+                console.log("Storage Event: Loading locally saved game HTML.");
+                const iframe = document.getElementById('game-frame');
+                iframe.srcdoc = savedGame;
+            }
+        });
 
         // Handle textarea input logging.
         document.getElementById('game-desc').addEventListener('input', () => {
@@ -175,7 +206,6 @@
             console.log("UI State: Disabling button, showing loader.");
             btn.disabled = true;
             btn.innerText = "Generating...";
-            iframe.style.display = 'none';
             loading.style.display = 'flex';
 
             // Clear previous game.
@@ -209,7 +239,11 @@
                 // Inject generated game.
                 console.log("UI State: Injecting HTML into iframe.");
                 iframe.srcdoc = data.game_html;
-                iframe.style.display = 'block';
+
+                // Save to local storage.
+                localStorage.setItem('alien_cargo_last_game', data.game_html);
+                localStorage.setItem('alien_cargo_last_desc', descInput);
+                console.log("Storage Event: Saved game state locally.");
 
             } catch (error) {
                 console.error("Error Event: API communication failed.", error);
