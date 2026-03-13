@@ -1,35 +1,11 @@
-Aggregated on: 2025-12-30 12:44:22
+Aggregated on: 2026-03-13 16:31:43
 ================================================================================
 Project Directory Tree:
 /
-├── data
-│   └── universe.json
 ├── static
 │   ├── images
 │   ├── js
-│   │   └── blackhole
-│   │       ├── input
-│   │       │   ├── camera_controls.js
-│   │       │   ├── input_state.js
-│   │       │   └── ship_controls.js
-│   │       ├── phaser
-│   │       │   └── phaser_overlay.js
-│   │       ├── shared
-│   │       │   ├── math.js
-│   │       │   ├── physics_height.js
-│   │       │   └── resize.js
-│   │       ├── three
-│   │       │   ├── asteroids.js
-│   │       │   ├── grid.js
-│   │       │   ├── grid_shader.js
-│   │       │   ├── moons.js
-│   │       │   ├── planets.js
-│   │       │   ├── ship.js
-│   │       │   ├── three_boot.js
-│   │       │   └── universe.js
-│   │       └── main.js
 │   ├── json
-│   │   └── tuning.json
 │   └── png
 │       ├── ship_burners.png
 │       └── ship_off.png
@@ -42,1224 +18,278 @@ Project Directory Tree:
 ├── .pythonstartup.py
 ├── .vimrc
 ├── _Review_Functions.py
-├── equations.md
 ├── flask_app.py
 ├── general.md
 ├── project_directory_full_code_1.txt
 └── README.txt
 
-12 directories, 33 files
+6 directories, 14 files
 ================================================================================
 
-[-] This file: equations.md | Contents:
-Here is the River Model of gravity in plain text representation.
-### The Spacetime Sink Model
-In this framework, a planet acts like a drain in a bathtub. Spacetime itself is a fluid flowing radially inwards toward the center of mass. Objects move "straight" through this fluid, but because the fluid itself is accelerating into the drain, the objects get dragged along with it.
-1. The Flow Velocity Equation (The Suck)
-This defines how fast spacetime is flowing into the sink created by the planet. The speed (v) depends on your distance (r) from the planet and the planet's mass (M).
-v_flow = - square_root( (2 * G * M) / r )
-Breakdown:
-* v_flow: The speed of the space river.
-* The negative sign: Indicates the direction is inward.
-* M: The planet's mass. The bigger the mass, the faster the flow.
-* r: The distance from the center. The closer you are, the faster space flows.
-2. The River Metric (The Geometry)
-If space is a moving river, we need a new way to measure distance. This equation describes the interval (ds) between two moments in spacetime.
-ds^2 = -c^2 * dt^2 + (dr - v_flow * dt)^2
-Breakdown:
-* -c^2 * dt^2: This is normal time flow if space were still.
-* (dr - v_flow * dt)^2: This shows that your change in position (dr) is fighting against the flow of the river (v_flow * dt). If you try to hover above a planet, you are actually "swimming upstream" at the exact speed space is flowing downstream.
-3. The Source (Divergence)
-This describes how the presence of mass creates the "drain."
-divergence(v_flow) = - 4 * pi * G * density
-Breakdown:
-Roughly speaking, the rate at which spacetime converges (sucks inward) at a specific point is determined by the density of matter at that point. A planet is essentially a region of high density that acts as a continuous sink for the surrounding space.
-### Visualization
-Imagine a calm lake representing empty space.
-1. You drop a bowling ball (a planet) into the middle.
-2. Immediately, a drain opens at the bottom of the bowling ball.
-3. The water (spacetime) begins flowing radially toward the ball from all directions to exit the drain.
-4. A ping pong ball placed nearby will drift toward the bowling ball. It isn't feeling a "force"; it is simply floating in water that is moving toward a drain.
--------------------------------------------------------
-This is a classic problem in fluid dynamics simulations for games. Since the planet is a "sink" deleting the grid, you need a "source" to maintain the medium.
-If you don't replace the spacetime, your grid will simply stretch until it tears or looks distorted. Here is how to implement the **"Infinite River"** loop in a game engine (like Unity or Unreal).
-### The Core Concept: The "Spacetime Recycler"
-You don't want to actually create and destroy objects constantly (which causes lag). Instead, you use **Object Pooling**. When a unit of spacetime (a grid node, a vertex, or a particle) falls into the planet, you teleport it back to the edge of the map.
-### 1. The Algorithm (The Logic Loop)
-Imagine your game world is a large circle with the planet in the center.
-1. **Initialization:** Create a dense grid of points (or a mesh) covering the screen.
-2. **The Flow (Update Loop):** Every frame, move every point closer to the planet using the River Model velocity formula:
-`velocity = -1 * direction_to_planet * sqrt(2 * G * Mass / distance)`
-3. **The Sink (Death):** Check if a point is inside the planet (distance < planet radius).
-4. **The Source (Rebirth):** If a point hits the sink, **teleport** it instantly to a random position on the remote outer edge of the map (the "Source Ring").
-### 2. Implementation Strategy: The "Stretchy Sheet" Problem
-There is a tricky issue: As points move inward, they get crowded together near the planet (high density) and spread far apart near the edges (low density).
-To fix this and make it look like a smooth, continuous liquid, you have two main implementation paths:
-#### Option A: The Particle Approach (Best for 2D or stylized 3D)
-You don't render a connected grid lines. You render "dust" or "stars" floating in the spacetime fluid.
-* **Behavior:** Thousands of particles float inward.
-* **The Trick:** When a particle respawns at the edge, give it a random offset so it doesn't look like a repeating pattern.
-* **Visuals:** This creates a *Star Wars* hyperdrive effect, but moving *into* the planet.
-#### Option B: The Dynamic Mesh (Best for "Grid" visuals)
-If you want to see actual grid lines warping, you cannot just teleport vertices, or you will get jagged lines crossing the screen. You need a **vertex shader** or a **scrolling texture**.
-**The Shader Trick (Zero CPU Cost):**
-Instead of moving actual geometry, you move the *texture coordinates* (UVs).
-1. Map a grid texture onto a flat plane.
-2. In the Pixel Shader, calculate the distance of that pixel from the planet center.
-3. Offset the UV lookup coordinate based on `Time` and that `Distance`.
-4. `UV.x += Time * Speed * (1/Distance)`
-5. Because textures repeat (tile), "new" grid lines will naturally appear at the edges and disappear into the center without you needing to code any spawning logic.
-### 3. Code Example (C# / Unity Style)
-Here is a script for **Option A (Physical Nodes)**, as it is easier to interact with gameplay mechanics (like a ship riding the current).
-```csharp
-using UnityEngine;
-public class SpacetimeRiver : MonoBehaviour
-{
-    public Transform planet;     // The sink
-    public int nodeCount = 500;  // How many spacetime "chunks"
-    public float mapRadius = 50.0f;
-    public float gravityStrength = 10.0f;
-    // The "Pool" of spacetime nodes
-    private GameObject[] nodes;
-    public GameObject nodePrefab; // A small dot or grid intersection sprite
-    void Start() {
-        nodes = new GameObject[nodeCount];
-        for(int i = 0; i < nodeCount; i++) {
-            // Spawn initially at random locations within the circle
-            Vector2 randomPos = Random.insideUnitCircle * mapRadius;
-            nodes[i] = Instantiate(nodePrefab, randomPos, Quaternion.identity);
-        }
-    }
-    void Update() {
-        foreach(var node in nodes) {
-            Vector3 direction = planet.position - node.transform.position;
-            float distance = direction.magnitude;
-            // 1. CALCULATE RIVER VELOCITY (The Flow)
-            // v = -sqrt(2GM/r). We simplify 2GM to 'gravityStrength'
-            // We clamp distance to avoid divide by zero errors
-            float speed = Mathf.Sqrt(gravityStrength / Mathf.Max(distance, 0.1f));
-            // Normalize direction and apply speed
-            Vector3 velocity = direction.normalized * speed;
-            // Move the node
-            node.transform.position += velocity * Time.deltaTime;
-            // 2. THE SINK (Check if consumed)
-            if (distance < 1.0f) { // Assuming planet radius is 1
-                RespawnAtEdge(node);
+[-] This file: .pythonstartup.py | Contents:
+import rlcompleter
+import readline
+readline.parse_and_bind("tab: complete")
+================================================================================
+
+[-] This file: flask_app.py | Contents:
+import re
+import requests
+from flask import Flask, render_template, request, jsonify
+app = Flask(__name__)
+# Point this directly to your newly built AIManager microservice
+AI_MANAGER_URL = "https://aimanager.pythonanywhere.com/process_request"
+@app.route('/')
+def index():
+    return render_template('index.html')
+@app.route('/generate_game', methods=['POST'])
+def generate_game():
+    data = request.json
+    description = data.get('description', '').strip()
+    if not description:
+        return jsonify({"error": "Game description is required"}), 400
+    try:
+        # Strict system prompt mapped to AIManager's "instructions" parameter
+        system_instructions = (
+            "You are an expert game developer. Create a single-page HTML game based on the user's description. "
+            "Your output must be EXCLUSIVELY valid HTML containing all necessary CSS and JavaScript within it. "
+            "Do not include any markdown formatting like ```html, and do not provide any explanations. "
+            "The game must be fully playable, robust, self-contained, and visually appealing."
+        )
+        # Payload perfectly mapped to your AIManager's /process_request endpoint
+        payload = {
+            "provider": "anthropic",
+            "model_key": "claude-sonnet-4-5-20250929",
+            "query": description,
+            "parameters": {
+                "instructions": system_instructions,
+                "max_tokens": 8000
             }
         }
-    }
-    void RespawnAtEdge(GameObject node) {
-        // 3. THE SOURCE (Spawn from grid edges)
-        // Pick a random angle on the outer circle
-        float angle = Random.Range(0f, 360f) * Mathf.DegToRad;
-        Vector3 newPos = new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0) * mapRadius;
-        // Add the planet's position offset if the planet moves
-        node.transform.position = planet.position + newPos;
-    }
-}
-```
-### 4. Handling "Conservation of Spacetime"
-If you spawn strictly at the edge, you might notice the grid looks "stretched" (low density) just inside the spawn ring.
-To fix this in a high-fidelity simulation, you use **Flux Balancing**:
-* The rate of nodes dying in the center = The rate of nodes spawning at the edge.
-* However, because the edge has a huge circumference and the sink is small, nodes at the edge should move *very slowly*, and accelerate as they get closer.
-* The math I provided above handles this naturally! The velocity is low at large  and high at small . This automatically keeps the visual density of the grid somewhat consistent, mimicking an incompressible fluid.
+        # Send request to AIManager (allowing 120s for Claude to write the code)
+        response = requests.post(AI_MANAGER_URL, json=payload, timeout=120)
+        # If AIManager returns a 500 or 400, raise it
+        response.raise_for_status()
+        manager_data = response.json()
+        # Extract the code from the AIManager's "outputs" array
+        outputs = manager_data.get('outputs', [])
+        if not outputs:
+            return jsonify({"error": "AIManager returned an empty response."}), 502
+        generated_code = outputs[0]
+        # Fallback cleanup just in case Claude includes markdown despite instructions
+        generated_code = re.sub(r'^```html\s*', '', generated_code)
+        generated_code = re.sub(r'^```\s*', '', generated_code)
+        generated_code = re.sub(r'\s*```$', '', generated_code)
+        return jsonify({"game_html": generated_code.strip()})
+    except requests.exceptions.RequestException as e:
+        # Catch connection errors, timeouts, or 500s from AIManager
+        return jsonify({"error": f"Failed to communicate with AIManager: {str(e)}"}), 502
+    except Exception as e:
+        return jsonify({"error": f"Internal formatting error: {str(e)}"}), 500
+if __name__ == '__main__':
+    app.run(debug=True)
 ================================================================================
 
-[-] This file: general.md | Contents:
-Alien Cargo is a vertical scrolling space shooter (traveling 'up' along the screen).
-The ship points North (bottom to top).
-View: Top-down with a slight perspective angle to create a 2.5D effect. Think Outrun the racing game perspective, but with a spaceship.
-### Coordinates
-- **+Z**: Moving Forward (Up the screen)
-- **-Z**: Moving Backward (Down the screen)
-- **+Y**: Altitude (Distance above the grid surface)
-- **-Y**: Descent (Closer to the grid surface)
-- **+X/-X**: Lateral movement (Right/Left)
-### The Infinite Corridor (Scrolling System)
-Since movement is primarily forward (+Z), the world is generated as an **infinite 3-lane corridor**.
-- **Lanes**: The universe is strictly tiled into 3 horizontal sectors relative to the ship: Left (-1), Center (0), and Right (1).
-- **Generation**: As the ship moves forward in Z, we spawn new rows of these 3 sectors ahead.
-- **Garbage Collection**: Strictly cull sectors that fall behind the ship (negative Z relative to ship) to keep memory usage constant.
-- **Boundaries**: The ship is confined to this corridor not by hard walls, but by an **exponential repulsion field** (an "invisible magnetic wall") that pushes back harder the further the ship strays from the center.
-### The "Liquid" Spacetime Grid
-The spacetime grid behaves less like a rigid wireframe and more like a **viscous liquid ocean**.
-- **Flow**: The grid texture flows continuously like a river.
-- **Gravity Wells**: Planets and Black Holes create deep depressions (dips) in the grid.
-- **Whirlpools**: Gravity wells exert a tangential force, creating a **whirlpool effect** where the grid visually spins and flows into the "sink" of the planet/black hole.
-- **Waves**: The grid surface undulates with gentle, rolling noise-based waves, and the ship "bobs" on these waves physically.
-### Celestial Objects
-- **Scale**: Objects are **massive**.
-    - **Black Holes**: Huge, screen-spanning whirlpools (Radius ~20-30). They dominate the view and should be spawned slightly off-center so the player can just barely navigate around their event horizon.
-    - **Planets**: Large obstacles (Radius ~12-25) that require significant lateral movement to dodge.
-- **Satellites**: Planets may have **1-3 orbiting asteroids/moons**. These orbit in a ring around the planet's equator.
-- **Asteroids**: Can be smooth or jagged (noise deformed). They orbit locally around planets rather than floating freely in deep space.
-### Ship Physics
-- **Movement**: Physics-based, using velocity, acceleration, and friction (inertia).
-- **Feel**: The ship should feel responsive but have weight. It shouldn't stop instantly (drift).
-- **Controls**:
-    - **Forward**: Automatic cruise speed with "brake" (Arrow Down) to slow down.
-    - **Lateral**: Fast, snappy acceleration (Arrow Left/Right) to dodge the massive obstacles.
-================================================================================
-
-[-] This file: static/js/blackhole/input/camera_controls.js | Contents:
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-const _desiredPos = new THREE.Vector3();
-const _lookAt = new THREE.Vector3();
-const _forward = new THREE.Vector3(0, 0, -1);
-export function updateChaseCamera(camera, ship, dt) {
-  // 1. Calculate Ship Forward Vector
-  const shipYaw = ship.mesh.rotation.y - Math.PI / 4;
-  // 2. Camera Offset
-  const camHeight = 18.0;
-  const camBack = 35.0;
-  // [TUNING]
-  // 0.8 = Camera follows 80% of ship's lateral movement.
-  // This keeps the ship mostly centered, allowing you to venture far into the terrain
-  // without the ship disappearing off the side of the screen.
-  const laneFollowRatio = 0.8;
-  _desiredPos.set(
-    ship.mesh.position.x * laneFollowRatio,
-    ship.mesh.position.y + camHeight,
-    ship.mesh.position.z + camBack
-  );
-  const lookAhead = 100.0;
-  // Blend look-target
-  _lookAt.set(
-      ship.mesh.position.x * (laneFollowRatio * 0.9),
-      ship.mesh.position.y,
-      ship.mesh.position.z - lookAhead
-  );
-  // 3. Smooth Follow (Dampening)
-  // Lowered the power base slightly for a "heavier", smoother camera
-  const follow = 1.0 - Math.pow(0.0001, dt);
-  camera.position.lerp(_desiredPos, follow);
-  camera.lookAt(_lookAt);
-  // 4. Dynamic Camera Banking
-  // Smoother roll lerp
-  const targetCamRoll = ship.mesh.rotation.z * 0.4;
-  camera.rotation.z += (targetCamRoll - camera.rotation.z) * 1.5 * dt;
-}
-================================================================================
-
-[-] This file: static/js/blackhole/input/input_state.js | Contents:
-export const input = {
-  keys: new Set(),
-  dragging: false,
-  yaw: 0,
-  pitch: 0
-};
-window.addEventListener("keydown", e => input.keys.add(e.code));
-window.addEventListener("keyup", e => input.keys.delete(e.code));
-================================================================================
-
-[-] This file: static/js/blackhole/input/ship_controls.js | Contents:
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-import { input } from "./input_state.js";
-import { getSurfaceHeight } from "../shared/physics_height.js";
-const ray = new THREE.Raycaster();
-const refPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-const _hit = new THREE.Vector3();
-export function updateShip(ship, camera, renderer, dt, time, activePlanets, config) {
-  const conf = config;
-  const w = renderer.domElement.clientWidth;
-  const h = renderer.domElement.clientHeight;
-  const cx = w / 2;
-  const by = h - ship.state.boxBottom;
-  if (ship.state.cursorX === undefined) ship.state.cursorX = cx;
-  if (ship.state.cursorY === undefined) ship.state.cursorY = by - ship.state.boxHeight * 0.35;
-  if (ship.state.velX === undefined) ship.state.velX = 0;
-  // --- 1. FORWARD MOVEMENT ---
-  // Defaults
-  let targetForward = conf.baseSpeed;
-  const boostSpeed = conf.boostSpeed || 120; // Default boost
-  if (input.keys.has("ArrowDown")) {
-    // Brake
-    ship.state.speedPx -= conf.brakePower * dt;
-    if (ship.state.speedPx < 0) ship.state.speedPx = 0;
-  }
-  else if (input.keys.has("ArrowUp")) {
-    // [NEW] Boost
-    targetForward = boostSpeed;
-    const diff = targetForward - ship.state.speedPx;
-    // Accelerate faster when boosting
-    ship.state.speedPx += diff * 3.0 * dt;
-  }
-  else {
-    // Cruising (Auto acceleration to base speed)
-    const diff = targetForward - ship.state.speedPx;
-    ship.state.speedPx += diff * 2.0 * dt;
-  }
-  // --- 2. LATERAL ---
-  let dirX = 0;
-  if (input.keys.has("ArrowLeft")) dirX -= 1;
-  if (input.keys.has("ArrowRight")) dirX += 1;
-  const targetVelX = dirX * conf.maxLateralSpeed;
-  const isAccelerating = (dirX !== 0 && Math.sign(dirX) === Math.sign(ship.state.velX));
-  const rate = isAccelerating ? conf.lateralAccel : conf.lateralFriction;
-  const alpha = 1.0 - Math.exp(-rate * dt);
-  ship.state.velX += (targetVelX - ship.state.velX) * alpha;
-  // --- 3. BOUNDARY ---
-  const halfBox = ship.state.boxWidth / 2;
-  const minX = cx - halfBox;
-  const maxX = cx + halfBox;
-  ship.state.cursorX += ship.state.velX * dt;
-  if (ship.state.cursorX < minX) {
-      ship.state.cursorX = minX;
-      ship.state.velX *= -0.2;
-  }
-  if (ship.state.cursorX > maxX) {
-      ship.state.cursorX = maxX;
-      ship.state.velX *= -0.2;
-  }
-  const minY = by - ship.state.boxHeight;
-  const maxY = by;
-  ship.state.cursorY = Math.max(minY, Math.min(maxY, ship.state.cursorY));
-  // --- 4. RAYCAST & POSITION ---
-  const ndcX = Math.max(-1, Math.min(1, (ship.state.cursorX / w) * 2 - 1));
-  const ndcY = -(ship.state.cursorY / h) * 2 + 1;
-  ray.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
-  refPlane.constant = 0;
-  if (ray.ray.intersectPlane(refPlane, _hit)) {
-    const targetX = _hit.x;
-    const currentZ = ship.mesh.position.z;
-    const h1 = getSurfaceHeight(targetX, currentZ, time, activePlanets);
-    const newZ = currentZ - ship.state.speedPx * dt;
-    ship.mesh.position.set(targetX, h1 + conf.hoverOffset, newZ);
-    ship.state.y = h1 + conf.hoverOffset;
-    // Visuals
-    const bankFactor = THREE.MathUtils.clamp(ship.state.velX / conf.maxLateralSpeed, -1, 1);
-    const targetRoll = -bankFactor * 0.78;
-    const targetYaw = (Math.PI / 4) - (bankFactor * 0.4);
-    const rotLerp = 4.0 * dt;
-    ship.mesh.rotation.z += (targetRoll - ship.mesh.rotation.z) * rotLerp;
-    ship.mesh.rotation.y += (targetYaw - ship.mesh.rotation.y) * rotLerp;
-  }
-}
-================================================================================
-
-[-] This file: static/js/blackhole/main.js | Contents:
-import { initThree } from "./three/three_boot.js";
-import { createGrid, followGridToShip } from "./three/grid.js";
-import { createShip } from "./three/ship.js";
-import { Universe } from "./three/universe.js";
-import { checkCollision } from "./three/asteroids.js";
-import { updateShip } from "./input/ship_controls.js";
-import { initOverlay } from "./phaser/phaser_overlay.js";
-import { setupResize } from "./shared/resize.js";
-import { updateChaseCamera } from "./input/camera_controls.js";
-import { input } from "./input/input_state.js"; // [NEW] Import input state
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-// --- TOOLBOX GENERATOR ---
-function createToolbox(config) {
-    const container = document.getElementById("toolbox-content");
-    if (!container) return;
-    container.innerHTML = "";
-    function walk(obj, path = []) {
-        for (const key in obj) {
-            const val = obj[key];
-            const currentPath = [...path, key];
-            if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
-                const group = document.createElement("div");
-                group.className = "control-group";
-                group.innerHTML = `<h3>${key}</h3>`;
-                container.appendChild(group);
-                walk(val, currentPath);
+[-] This file: templates/index.html | Contents:
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alien Cargo - Game Generator</title>
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            color: #00d2ff;
+            margin-bottom: 5px;
+        }
+        p.subtitle {
+            color: #aaaaaa;
+            margin-bottom: 20px;
+        }
+        #generator-ui {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        textarea {
+            width: 100%;
+            height: 120px;
+            padding: 15px;
+            font-size: 16px;
+            font-family: inherit;
+            background-color: #1e1e1e;
+            color: #ffffff;
+            border: 1px solid #333;
+            border-radius: 8px;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #00d2ff;
+        }
+        button {
+            padding: 15px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        button:active {
+            transform: scale(0.98);
+        }
+        button:disabled {
+            background: #555555;
+            color: #888888;
+            cursor: not-allowed;
+            transform: none;
+        }
+        /* 1280x720 centered container */
+        #game-wrapper {
+            width: 1280px;
+            height: 720px;
+            background-color: #000000;
+            border: 2px solid #333;
+            border-radius: 4px;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            border-radius: 4px;
+            background-color: #000;
+        }
+        #loading {
+            display: none;
+            position: absolute;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            color: #00d2ff;
+            font-size: 20px;
+            font-weight: bold;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(0, 210, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #00d2ff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <h1>Alien Cargo 🛸</h1>
+    <p class="subtitle">AI-Powered Instant Game Generator</p>
+    <div id="generator-ui">
+        <textarea id="game-desc" placeholder="Describe your game... (e.g., A top-down space shooter where you defend cargo ships from alien swarms)"></textarea>
+        <button id="create-btn">Create Game</button>
+    </div>
+    <div id="game-wrapper">
+        <div id="loading">
+            <div class="spinner"></div>
+            <span>Compiling game logic...</span>
+        </div>
+        <iframe id="game-frame" sandbox="allow-scripts allow-same-origin"></iframe>
+    </div>
+    <script>
+        const AI_MANAGER_URL = "https://aimanager.pythonanywhere.com/process_request"; // Ensure this matches your backend
+        document.getElementById('create-btn').addEventListener('click', async () => {
+            const descInput = document.getElementById('game-desc').value.trim();
+            if (!descInput) {
+                alert("Please describe your game first!");
+                return;
             }
-            else if (typeof val === 'number') {
-                const row = document.createElement("div");
-                row.className = "slider-row";
-                let min = 0;
-                let max = val > 1 ? val * 4 : 2;
-                let step = val % 1 !== 0 || val < 5 ? 0.01 : 1;
-                if (val === 0) max = 100;
-                const label = document.createElement("div");
-                label.className = "slider-label";
-                label.innerHTML = `<span>${key}</span><span id="disp-${currentPath.join('-')}">${val.toFixed(2)}</span>`;
-                const input = document.createElement("input");
-                input.type = "range";
-                input.min = min;
-                input.max = max;
-                input.step = step;
-                input.value = val;
-                input.oninput = (e) => {
-                    const v = parseFloat(e.target.value);
-                    obj[key] = v;
-                    const disp = document.getElementById(`disp-${currentPath.join('-')}`);
-                    if(disp) disp.innerText = v.toFixed(2);
-                };
-                row.appendChild(label);
-                row.appendChild(input);
-                container.appendChild(row);
-            }
-        }
-    }
-    walk(config);
-}
-// --- MAIN BOOT ---
-async function boot() {
-  console.log("[BOOT] Fetching tuning...");
-  // Default config
-  let config = {
-      ship: {
-          baseSpeed: 70,
-          boostSpeed: 120, // [NEW]
-          brakePower: 80,
-          hoverOffset: 4.0,
-          maxLateralSpeed: 550,
-          lateralAccel: 25.0,
-          lateralFriction: 8.0,
-          boxWidth: 520,
-          boundaryEdge: 510,
-          boundaryStrength: 40.0
-      },
-      universe: { sectorSize: 300, voidChance: 0.1 },
-      grid: { softening: 30.0, depth: 1.5, scale: 0.15 }, // [TUNED]
-      planets: { minCount: 1, maxCount: 2, radiusMin: 12, radiusMax: 25, massMultiplier: 0.3 }, // [TUNED]
-      blackholes: { chance: 0.08, radiusMin: 20, radiusMax: 35, massMultiplier: 1.5 },
-      asteroids: { minSectorAsteroids: 3, maxSectorAsteroids: 8 }
-  };
-  try {
-      const configRes = await fetch("/api/tuning");
-      if(configRes.ok) config = await configRes.json();
-  } catch(e) { console.warn("Using default tuning"); }
-  createToolbox(config);
-  window.addEventListener("keydown", (e) => {
-      if (e.key === '1') {
-          const box = document.getElementById("toolbox");
-          if (box) box.style.display = box.style.display === "block" ? "none" : "block";
-      }
-      if (e.key === 'Enter' && isGameOver) {
-          window.location.reload();
-      }
-  });
-  const saveBtn = document.getElementById("saveBtn");
-  if (saveBtn) {
-      saveBtn.onclick = () => {
-          console.log(JSON.stringify(config, null, 2));
-          alert("Config logged to console (F12)");
-      };
-  }
-  const canvas = document.getElementById("threeCanvas");
-  const { renderer, scene, camera } = initThree(canvas);
-  window.__camera = camera;
-  const { mesh: gridMesh, uniforms } = createGrid(scene, config.grid);
-  const ship = createShip(scene);
-  // Hide the 3D ship mesh visually, but keep it for physics/logic?
-  // User said "Keep the 3d pyramid as is". We will keep it visible for now
-  // or you can set ship.mesh.visible = false if you only want the sprite.
-  // ship.mesh.visible = false;
-  const universe = new Universe(scene, uniforms, config);
-  if(config.ship.boxWidth) ship.state.boxWidth = config.ship.boxWidth;
-  const phaserGame = initOverlay(ship);
-  setupResize(renderer, camera, phaserGame);
-  let last = performance.now();
-  let isGameOver = false;
-  // Reusable vector for projection
-  const _tempV = new THREE.Vector3();
-  function loop(t) {
-    if (isGameOver) return;
-    const dt = Math.min(0.033, (t - last) / 1000);
-    last = t;
-    if(config.ship.boxWidth) ship.state.boxWidth = config.ship.boxWidth;
-    // Grid Uniform Updates
-    if (config.grid) {
-        if (config.grid.softening !== undefined) uniforms.uSoftening.value = config.grid.softening;
-        if (config.grid.depth !== undefined) uniforms.uDepth.value = config.grid.depth;
-        if (config.grid.scale !== undefined) uniforms.uGridScale.value = config.grid.scale;
-    }
-    uniforms.uTime.value += dt;
-    const globalTime = uniforms.uTime.value;
-    updateShip(ship, camera, renderer, dt, globalTime, universe.activePlanets, config.ship);
-    updateChaseCamera(camera, ship, dt);
-    followGridToShip(gridMesh, ship.mesh);
-    universe.update(ship.mesh, dt, globalTime);
-    // [NEW] Sync Phaser Sprite to 3D Position
-    if (phaserGame && phaserGame.updateShipVisuals) {
-        // 1. Get World Pos
-        ship.mesh.getWorldPosition(_tempV);
-        // 2. Project to Normalized Device Coords (-1 to +1)
-        _tempV.project(camera);
-        // 3. Convert to Screen Coords
-        const x = (_tempV.x * .5 + .5) * canvas.clientWidth;
-        const y = (_tempV.y * -.5 + .5) * canvas.clientHeight;
-        // 4. Check Burner State
-        const isBurnerOn = input.keys.has("ArrowUp");
-        phaserGame.updateShipVisuals(x, y, isBurnerOn);
-    }
-    // Threats
-    const threats = [];
-    universe.activePlanets.forEach(p => {
-        if (p.userData.moons) threats.push(...p.userData.moons);
-    });
-    universe.sectorMeshes.forEach(meshes => {
-        meshes.forEach(m => {
-            if (m.userData.type === 'asteroid') threats.push(m.userData.physics);
-        });
-    });
-    if (checkCollision(ship, threats)) {
-      triggerGameOver("Hull Critical: Asteroid Impact");
-      return;
-    }
-    if (checkPlanetCollision(ship, universe.activePlanets)) {
-      triggerGameOver("Atmospheric Entry Failed: Planet Collision");
-      return;
-    }
-    renderer.render(scene, camera);
-    requestAnimationFrame(loop);
-  }
-  function checkPlanetCollision(ship, planets) {
-    const shipPos = ship.mesh.position;
-    const shipR = ship.radius * 0.8;
-    for (const p of planets) {
-      if (Math.abs(p.position.z - shipPos.z) > 40) continue;
-      const distSq = shipPos.distanceToSquared(p.position);
-      const r = p.geometry.parameters.radius + shipR;
-      if (distSq < r * r) return true;
-    }
-    return false;
-  }
-  function triggerGameOver(reason) {
-    console.log("[GAME OVER]", reason);
-    isGameOver = true;
-    if (phaserGame && phaserGame.showGameOver) {
-      phaserGame.showGameOver(reason);
-    }
-  }
-  requestAnimationFrame(loop);
-  console.log("[BOOT] main loop started");
-}
-boot();
-================================================================================
-
-[-] This file: static/js/blackhole/phaser/phaser_overlay.js | Contents:
-export function initOverlay(ship) {
-  let marker, box, gameOverText, reasonText, shipSprite;
-  let sceneContext;
-  const game = new Phaser.Game({
-    type: Phaser.WEBGL,
-    parent: "phaserMount",
-    width: innerWidth,
-    height: innerHeight,
-    transparent: true,
-    scale: { mode: Phaser.Scale.RESIZE },
-    scene: {
-      preload() {
-        // [NEW] Load Ship Assets
-        this.load.image('ship_off', '/static/png/ship_off.png');
-        this.load.image('ship_burners', '/static/png/ship_burners.png');
-      },
-      create() {
-        sceneContext = this;
-        // [NEW] The 2.5D Ship Sprite
-        // Centered anchor (0.5) is default
-        shipSprite = this.add.sprite(0, 0, 'ship_off').setDepth(5);
-        // Adjust scale if your PNGs are huge. Start at 0.5 or 1.0.
-        shipSprite.setScale(0.5);
-        // --- HUD ---
-        marker = this.add.circle(0, 0, 5, 0xffffff).setDepth(10);
-        marker.setVisible(false); // Hide debug marker now that we have a sprite
-        box = this.add.graphics().setDepth(9);
-        this.add.text(
-          14, 12,
-          "Arrow keys: Move\nUp: Boost\nDown: Brake",
-          { fontSize: "14px", color: "#fff", stroke: "#000", strokeThickness: 2 }
-        ).setDepth(10);
-        // --- Game Over Screens ---
-        gameOverText = this.add.text(innerWidth / 2, innerHeight / 2 - 20, "GAME OVER", {
-          fontSize: "64px",
-          color: "#ff3333",
-          fontStyle: "bold",
-          stroke: "#000",
-          strokeThickness: 6
-        }).setOrigin(0.5).setVisible(false).setDepth(20);
-        reasonText = this.add.text(innerWidth / 2, innerHeight / 2 + 40, "", {
-          fontSize: "24px",
-          color: "#ffffff",
-          stroke: "#000",
-          strokeThickness: 4
-        }).setOrigin(0.5).setVisible(false).setDepth(20);
-        // --- EXPORTS ---
-        game.showGameOver = (reason) => {
-          shipSprite.setVisible(false); // Hide ship on death
-          box.setVisible(false);
-          gameOverText.setVisible(true);
-          reasonText.setText(reason + "\nPress ENTER to Restart").setVisible(true);
-          this.tweens.add({
-            targets: [gameOverText, reasonText],
-            scale: { from: 0.8, to: 1 },
-            duration: 800,
-            ease: 'Bounce.Out'
-          });
-        };
-        // [NEW] Sync function for Main Loop
-        game.updateShipVisuals = (x, y, isBurnerOn) => {
-            if (!shipSprite) return;
-            shipSprite.setPosition(x, y);
-            // Texture Swap
-            const textureKey = isBurnerOn ? 'ship_burners' : 'ship_off';
-            if (shipSprite.texture.key !== textureKey) {
-                shipSprite.setTexture(textureKey);
-            }
-        };
-        console.log("[PHASER] overlay ready");
-      },
-      update() {
-        if (gameOverText.visible) return;
-        // Red Box Draw
-        const w = window.innerWidth;
-        const h = window.innerHeight;
-        const cx = w / 2;
-        const by = h - ship.state.boxBottom;
-        box.clear().lineStyle(2, 0xff0000, 0.6).strokeRect(
-          cx - ship.state.boxWidth / 2,
-          by - ship.state.boxHeight,
-          ship.state.boxWidth,
-          ship.state.boxHeight
-        );
-      }
-    }
-  });
-  return game;
-}
-================================================================================
-
-[-] This file: static/js/blackhole/shared/math.js | Contents:
-export function rand(min, max) {
-  return min + Math.random() * (max - min);
-}
-================================================================================
-
-[-] This file: static/js/blackhole/shared/physics_height.js | Contents:
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-// Must match grid_shader.js consts
-const SOFTENING = 8.0;
-const DEPTH_STRENGTH = 20.0;
-// [TUNING] Slower, smoother liquid waves
-const NOISE_AMP = 4.0;
-const NOISE_FREQ = 0.015; // Lower frequency = Wider, gentler hills
-const WAVE_SPEED = 0.2;   // Slower animation
-// --- GLSL Hash / Noise Port ---
-function fract(x) { return x - Math.floor(x); }
-function hash(x, y) {
-  const dot = x * 12.9898 + y * 78.233;
-  const sin = Math.sin(dot);
-  return fract(sin * 43758.5453);
-}
-function noise(x, y) {
-  const ix = Math.floor(x);
-  const iy = Math.floor(y);
-  const fx = fract(x);
-  const fy = fract(y);
-  // Cubic Hermite Smoothing
-  const ux = fx * fx * (3.0 - 2.0 * fx);
-  const uy = fy * fy * (3.0 - 2.0 * fy);
-  const a = hash(ix, iy);
-  const b = hash(ix + 1, iy);
-  const c = hash(ix, iy + 1);
-  const d = hash(ix + 1, iy + 1);
-  return (a * (1 - ux) + b * ux) * (1 - uy) +
-         (c * (1 - ux) + d * ux) * uy;
-}
-function fbm(x, y, t) {
-  let total = 0.0;
-  let amp = 1.0;
-  let freq = NOISE_FREQ;
-  // Animate the domain with time for liquid flow
-  const tx = t * WAVE_SPEED;
-  const ty = t * WAVE_SPEED * 0.5;
-  // 3 Octaves
-  for(let i = 0; i < 3; i++) {
-    total += noise(x * freq + tx, y * freq + ty) * amp;
-    freq *= 2.0;
-    amp *= 0.5;
-  }
-  return total;
-}
-// --- Main Surface Function ---
-export function getSurfaceHeight(x, z, t, planets) {
-  // 1. Gravity Wells
-  let w = 0.0;
-  if (planets) {
-    for (const p of planets) {
-      const dx = x - p.position.x;
-      const dz = z - p.position.z;
-      // Simple inverse square approximation for depth
-      w += p.userData.mass / (dx * dx + dz * dz + SOFTENING);
-    }
-  }
-  // 2. Terrain Noise (Liquid)
-  const terrain = fbm(x, z, t || 0) * NOISE_AMP;
-  // 3. Combine
-  return terrain - (w * DEPTH_STRENGTH);
-}
-================================================================================
-
-[-] This file: static/js/blackhole/shared/resize.js | Contents:
-export function setupResize(renderer, camera, phaserGame) {
-  let queued = false;
-  function doResize() {
-    queued = false;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    renderer.setSize(w, h, false);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
-    if (phaserGame?.scale?.resize) {
-      try { phaserGame.scale.resize(w, h); }
-      catch {}
-    }
-    console.log("[RESIZE]", w, h);
-  }
-  window.addEventListener("resize", () => {
-    if (queued) return;
-    queued = true;
-    requestAnimationFrame(doResize);
-  });
-  doResize();
-}
-================================================================================
-
-[-] This file: static/js/blackhole/three/asteroids.js | Contents:
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-import { rand } from "../shared/math.js";
-function ruggedizeGeometry(geometry, amount) {
-  const posAttribute = geometry.attributes.position;
-  const vertex = new THREE.Vector3();
-  for (let i = 0; i < posAttribute.count; i++) {
-    vertex.fromBufferAttribute(posAttribute, i);
-    const deform = 1.0 + (Math.random() - 0.5) * amount;
-    vertex.multiplyScalar(deform);
-    posAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
-  }
-  geometry.computeVertexNormals();
-  return geometry;
-}
-export function createFreeAsteroid(data) {
-  const r = data.r || rand(0.5, 1.5);
-  const geo = new THREE.DodecahedronGeometry(r, 0); // Low poly look
-  ruggedizeGeometry(geo, 0.4);
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0x886655, // Brownish rock
-    roughness: 0.9,
-    flatShading: true
-  });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(data.x, data.y, data.z);
-  // Velocity:
-  // Ship moves -Z (Negative).
-  // Asteroids spawning ahead (more Negative Z).
-  // To flow TOWARDS us, they must move +Z (Positive).
-  const velocity = new THREE.Vector3(
-    rand(-5, 5), // Slight drift L/R
-    0,
-    rand(20, 60) // [CHANGED] Positive Z = Moving towards camera/ship
-  );
-  return {
-    mesh,
-    r: r,
-    velocity: velocity,
-    rotAxis: new THREE.Vector3(Math.random(), Math.random(), Math.random()).normalize(),
-    rotSpeed: rand(1, 4)
-  };
-}
-export function updateFreeAsteroids(universe, dt) {
-  for (const meshes of universe.sectorMeshes.values()) {
-    meshes.forEach(obj => {
-      if (obj.userData.type === 'asteroid') {
-        const d = obj.userData.physics;
-        // Move Physics
-        obj.position.addScaledVector(d.velocity, dt);
-        obj.rotation.x += d.rotAxis.x * d.rotSpeed * dt;
-        obj.rotation.y += d.rotAxis.y * d.rotSpeed * dt;
-      }
-    });
-  }
-}
-export function checkCollision(ship, objectList) {
-    const shipPos = ship.mesh.position;
-    const worldPos = new THREE.Vector3();
-    const shipR = ship.radius;
-    for (const obj of objectList) {
-        const mesh = obj.mesh || obj;
-        const r = obj.r || (mesh.geometry.parameters.radius || 1.0);
-        mesh.getWorldPosition(worldPos);
-        // Height check optimization
-        if (Math.abs(worldPos.y - shipPos.y) > 3.5) continue;
-        const dx = worldPos.x - shipPos.x;
-        const dz = worldPos.z - shipPos.z;
-        const distSq = dx*dx + dz*dz;
-        const minDist = shipR + r;
-        if (distSq < minDist * minDist) {
-            return true;
-        }
-    }
-    return false;
-}
-================================================================================
-
-[-] This file: static/js/blackhole/three/grid.js | Contents:
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-import { makeGridMaterial } from "./grid_shader.js";
-export function createGrid(scene) {
-  const { material, uniforms } = makeGridMaterial(THREE);
-  // [CHANGED] Reduced resolution from 240x240 to 120x120 (x2 less detailed)
-  const geo = new THREE.PlaneGeometry(180, 180, 120, 120);
-  geo.rotateX(-Math.PI / 2);
-  const mesh = new THREE.Mesh(geo, material);
-  mesh.position.set(0, 0, 0);
-  scene.add(mesh);
-  return { mesh, uniforms };
-}
-export function followGridToShip(gridMesh, shipMesh) {
-  gridMesh.position.x = shipMesh.position.x;
-  gridMesh.position.z = shipMesh.position.z;
-}
-================================================================================
-
-[-] This file: static/js/blackhole/three/grid_shader.js | Contents:
-export const MAX_PLANETS = 8;
-export function makeGridMaterial(THREE) {
-  const uniforms = {
-    uTime: { value: 0 },
-    uGridScale: { value: 0.35 },
-    uLineWidth: { value: 1.5 },
-    uSoftening: { value: 8.0 },
-    uDepth: { value: 20.0 },
-    uFlowSpeed: { value: 2.0 },
-    uFlowStrength: { value: 1.0 },
-    uPlanetCount: { value: 0 },
-    uPlanetPos: {
-      value: Array.from({ length: MAX_PLANETS }, () => new THREE.Vector3(9999, 0, 9999))
-    },
-    uPlanetMass: { value: new Array(MAX_PLANETS).fill(0) },
-    // Fog Uniforms
-    ...THREE.UniformsLib.fog
-  };
-  const material = new THREE.ShaderMaterial({
-    uniforms,
-    vertexShader: `
-      uniform float uTime;
-      uniform float uSoftening;
-      uniform float uDepth;
-      uniform int uPlanetCount;
-      uniform vec3 uPlanetPos[${MAX_PLANETS}];
-      uniform float uPlanetMass[${MAX_PLANETS}];
-      varying vec2 vWorldXZ;
-      varying float vWell;
-      #include <fog_pars_vertex>
-      float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
-      float noise(vec2 p) {
-        vec2 i = floor(p); vec2 f = fract(p);
-        f = f * f * (3.0 - 2.0 * f);
-        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
-                   mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
-      }
-      float fbm(vec2 p, float t) {
-        float total = 0.0; float amp = 1.0; float freq = 0.03;
-        vec2 shift = vec2(t * 0.5, t * 0.25);
-        for(int i = 0; i < 3; i++) {
-            total += noise(p * freq + shift) * amp;
-            freq *= 2.0; amp *= 0.5;
-        }
-        return total;
-      }
-      float well(vec2 d, float m) { return m / (dot(d,d) + uSoftening); }
-      void main() {
-        vec3 worldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-        float w = 0.0;
-        for (int i = 0; i < ${MAX_PLANETS}; i++) {
-          if (i >= uPlanetCount) break;
-          w += well(worldPos.xz - uPlanetPos[i].xz, uPlanetMass[i]);
-        }
-        float terrain = fbm(worldPos.xz, uTime) * 4.0;
-        vec3 p = position;
-        p.y -= uDepth * w;
-        p.y += terrain;
-        vWorldXZ = worldPos.xz;
-        vWell = w;
-        // [FIX] Define mvPosition explicitly for Fog
-        vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
-        gl_Position = projectionMatrix * mvPosition;
-        #include <fog_vertex>
-      }
-    `,
-    fragmentShader: `
-      uniform float uTime;
-      uniform float uGridScale;
-      uniform float uLineWidth;
-      uniform float uSoftening;
-      uniform float uFlowSpeed;
-      uniform float uFlowStrength;
-      uniform int uPlanetCount;
-      uniform vec3 uPlanetPos[${MAX_PLANETS}];
-      uniform float uPlanetMass[${MAX_PLANETS}];
-      varying vec2 vWorldXZ;
-      varying float vWell;
-      #include <fog_pars_fragment>
-      float gridLines(vec2 p) {
-        vec2 g = p * uGridScale;
-        vec2 a = abs(fract(g - 0.5) - 0.5) / fwidth(g);
-        float line = 1.0 - min(min(a.x, a.y), 1.0);
-        return smoothstep(0.0, 1.0, line * uLineWidth);
-      }
-      void main() {
-        vec2 flow = vec2(0.0);
-        for (int i = 0; i < ${MAX_PLANETS}; i++) {
-          if (i >= uPlanetCount) break;
-          vec2 d = uPlanetPos[i].xz - vWorldXZ;
-          float r2 = dot(d,d) + uSoftening;
-          vec2 radial = normalize(d + 1e-6);
-          vec2 tangent = vec2(-radial.y, radial.x);
-          flow += (radial * 0.5 + tangent * 1.5) * (uPlanetMass[i] / r2);
-        }
-        vec2 baseRiver = vec2(0.0, 1.0);
-        vec2 finalFlow = baseRiver * 0.2 + flow * uFlowStrength;
-        vec2 sampleXZ = vWorldXZ - finalFlow * (uTime * uFlowSpeed);
-        float line = gridLines(sampleXZ);
-        float glow = clamp(vWell * 8.0, 0.0, 0.8);
-        vec3 col = vec3(line);
-        col += glow * vec3(0.6, 0.8, 1.0);
-        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 0.6);
-        #include <fog_fragment>
-      }
-    `,
-    transparent: true,
-    depthWrite: false,
-    depthTest: true,
-    fog: true
-  });
-  return { material, uniforms };
-}
-================================================================================
-
-[-] This file: static/js/blackhole/three/moons.js | Contents:
-// static/js/blackhole/three/moons.js
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-import { rand } from "../shared/math.js";
-// Helper to noise-deform a sphere (Rugged look)
-function ruggedizeGeometry(geometry, amount) {
-  const posAttribute = geometry.attributes.position;
-  const vertex = new THREE.Vector3();
-  for (let i = 0; i < posAttribute.count; i++) {
-    vertex.fromBufferAttribute(posAttribute, i);
-    const deform = 1.0 + (Math.random() - 0.5) * amount;
-    vertex.multiplyScalar(deform);
-    posAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
-  }
-  geometry.computeVertexNormals();
-  return geometry;
-}
-export function createMoonSystem(planetMesh, config) {
-  const conf = config || {
-    minCount: 1, maxCount: 3,
-    minSize: 0.5, maxSize: 1.2,
-    orbitDistanceMin: 1.5, orbitDistanceMax: 3.0,
-    orbitSpeedMin: 0.4, orbitSpeedMax: 1.2,
-    ruggedness: 0.2
-  };
-  const moons = [];
-  const count = Math.floor(rand(conf.minCount, conf.maxCount));
-  for (let i = 0; i < count; i++) {
-    const r = rand(conf.minSize, conf.maxSize);
-    // Create Geometry
-    let geo = new THREE.SphereGeometry(r, 7, 6);
-    ruggedizeGeometry(geo, conf.ruggedness);
-    const mat = new THREE.MeshStandardMaterial({
-        color: 0xaaaaaa,
-        roughness: 0.8,
-        flatShading: true
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    // Orbit Logic
-    const planetRadius = planetMesh.geometry.parameters.radius;
-    const dist = planetRadius + rand(conf.orbitDistanceMin, conf.orbitDistanceMax);
-    const angle = Math.random() * Math.PI * 2;
-    const speed = rand(conf.orbitSpeedMin, conf.orbitSpeedMax) * (Math.random() < 0.5 ? 1 : -1);
-    // Initial Pos
-    mesh.position.set(Math.cos(angle) * dist, rand(-0.2, 0.2), Math.sin(angle) * dist);
-    planetMesh.add(mesh); // Attach to planet
-    moons.push({
-      mesh,
-      orbitRadius: dist,
-      angle: angle,
-      speed: speed,
-      rotationAxis: new THREE.Vector3(Math.random(), Math.random(), Math.random()).normalize(),
-      rotationSpeed: rand(0.5, 2.0),
-      r: r // Collision radius
-    });
-  }
-  return moons;
-}
-export function updateMoons(planetMesh, dt) {
-  const data = planetMesh.userData.moons;
-  if (!data) return;
-  data.forEach(m => {
-    // Orbit
-    m.angle += m.speed * dt;
-    m.mesh.position.x = Math.cos(m.angle) * m.orbitRadius;
-    m.mesh.position.z = Math.sin(m.angle) * m.orbitRadius;
-    // Tumble
-    m.mesh.rotateOnAxis(m.rotationAxis, m.rotationSpeed * dt);
-  });
-}
-================================================================================
-
-[-] This file: static/js/blackhole/three/planets.js | Contents:
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-// Pure factory: No scene adding, just mesh creation
-export function createPlanetMesh(data) {
-  const isBlackHole = data.type === "blackhole";
-  const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(data.r, 24, 18),
-    new THREE.MeshStandardMaterial({
-      color: isBlackHole
-        ? 0x050508
-        : new THREE.Color().setHSL(data.colorHue, 0.6, 0.55),
-      roughness: isBlackHole ? 0.25 : 0.55,
-      metalness: 0.0,
-      emissive: isBlackHole ? 0x110022 : 0x000000,
-    })
-  );
-  return mesh;
-}
-================================================================================
-
-[-] This file: static/js/blackhole/three/ship.js | Contents:
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-export function createShip(scene) {
-  const mesh = new THREE.Mesh(
-    new THREE.ConeGeometry(0.65, 1.6, 4, 1),
-    new THREE.MeshStandardMaterial({ color: 0xffffff })
-  );
-  // Rotate to point forward (-Z)
-  mesh.rotation.y = Math.PI / 4;
-  mesh.position.set(0, 3, 0);
-  scene.add(mesh);
-  return {
-    mesh,
-    radius: 0.55,
-    state: {
-      y: 3,
-      speedPx: 140, // Reduced from 280 for slower movement
-      boxWidth: 360,
-      boxHeight: 210,
-      boxBottom: 70
-    }
-  };
-}
-================================================================================
-
-[-] This file: static/js/blackhole/three/three_boot.js | Contents:
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-export function initThree(canvas) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.setClearColor(0x000000, 1);
-  const scene = new THREE.Scene();
-  // [NEW] Fog for smooth fade in.
-  // Color 0x000000 (Black).
-  // Start: 120 (Just beyond the ship), End: 450 (Fade out completely)
-  scene.fog = new THREE.Fog(0x000000, 120, 450);
-  // [NEW] Increased Far Plane to 6000 to prevent clipping before fog ends
-  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 6000);
-  camera.rotation.order = "YXZ";
-  resetCameraSym(camera);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x101018, 0.8));
-  const dir = new THREE.DirectionalLight(0xffffff, 0.6);
-  dir.position.set(20, 40, 10);
-  scene.add(dir);
-  return { renderer, scene, camera };
-}
-export function resetCameraSym(camera) {
-  camera.position.set(0, 13.5, 27.5);
-  camera.lookAt(0, 0, 0);
-}
-================================================================================
-
-[-] This file: static/js/blackhole/three/universe.js | Contents:
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-import { createPlanetMesh } from "./planets.js";
-import { rand } from "../shared/math.js";
-import { createMoonSystem, updateMoons } from "./moons.js";
-import { createFreeAsteroid, updateFreeAsteroids } from "./asteroids.js";
-const MAX_SHADER_PLANETS = 8;
-export class Universe {
-  constructor(scene, uniforms, config) {
-    this.scene = scene;
-    this.uniforms = uniforms;
-    this.config = config;
-    this.sectorData = new Map();
-    this.sectorMeshes = new Map();
-    this.pendingKeys = new Set();
-    this.currentRowZ = -999999;
-    this.shipPos = new THREE.Vector3();
-    this.activePlanets = [];
-    this.freeAsteroids = [];
-  }
-  update(shipMesh, dt, time) {
-    this.shipPos.copy(shipMesh.position);
-    // Update Sector Logic
-    const sz = Math.floor(shipMesh.position.z / this.config.universe.sectorSize);
-    if (sz !== this.currentRowZ) {
-      this.currentRowZ = sz;
-      this.updateCorridor(sz);
-    }
-    // Update Moons
-    this.activePlanets.forEach(p => {
-        updateMoons(p, dt);
-    });
-    // Update Free Asteroids
-    updateFreeAsteroids(this, dt);
-    this.updateShaderGravity();
-  }
-  async updateCorridor(currentZ) {
-    const keysNeeded = [];
-    const forwardView = 2;
-    for (let z = currentZ; z <= currentZ + forwardView; z++) {
-        for (let x = -1; x <= 1; x++) {
-            keysNeeded.push(`${x}:${z}`);
-        }
-    }
-    // Cleanup
-    for (const [key, meshes] of this.sectorMeshes) {
-      if (!keysNeeded.includes(key)) {
-        meshes.forEach(m => {
-            this.scene.remove(m);
-            if(m.geometry) m.geometry.dispose();
-            if(m.material) m.material.dispose();
-            if(m.userData.moons) {
-                m.userData.moons.forEach(moon => {
-                    m.remove(moon.mesh);
-                    moon.mesh.geometry.dispose();
-                    moon.mesh.material.dispose();
+            const btn = document.getElementById('create-btn');
+            const loading = document.getElementById('loading');
+            const iframe = document.getElementById('game-frame');
+            // UI State updates
+            btn.disabled = true;
+            btn.innerText = "Generating...";
+            iframe.style.display = 'none';
+            loading.style.display = 'flex';
+            iframe.srcdoc = ""; // Clear previous game
+            // Construct System Instructions to strictly enforce rules
+            const gameInstructions = `You are an expert HTML5 Game Developer. Generate a complete, playable, single-file HTML/JS game.
+CRITICAL REQUIREMENTS:
+1. The game MUST use a standard HTML5 <canvas> centered in the window with EXACTLY 1280x720 resolution.
+2. Controls: Arrow keys to move (WASD for Player 2 if applicable). Enter to start game. Space to shoot/action.
+3. It MUST feature a "Game Over" state with a clear visual "Restart / Go Again" button or key-press instruction.
+4. Do NOT load external images, audio, or libraries. Use vanilla JS and Canvas 2D API with placeholder shapes/colors (rectangles, circles, path drawing).
+5. Output ONLY the raw HTML code starting with <!DOCTYPE html>. Do NOT wrap in markdown \`\`\`html tags. No explanations.`;
+            const payload = {
+                provider: "anthropic",
+                model_key: "claude-sonnet-4-5-20250929", // Reliable for robust single-file code generation
+                query: `User's Game Description: ${descInput}`,
+                parameters: {
+                    task: "text_to_text",
+                    instructions: gameInstructions,
+                    max_tokens: 8192,
+                    budget_tokens: 2048 // Enable thinking for better code architecture
+                }
+            };
+            try {
+                const response = await fetch(AI_MANAGER_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
                 });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                let generatedCode = data.outputs[0];
+                // Sanitize LLM output in case it still adds markdown formatting
+                if (generatedCode.startsWith("```html")) {
+                    generatedCode = generatedCode.replace(/```html/g, "").replace(/```/g, "").trim();
+                } else if (generatedCode.startsWith("```")) {
+                    generatedCode = generatedCode.replace(/```/g, "").trim();
+                }
+                // Inject code directly into iframe
+                iframe.srcdoc = generatedCode;
+                iframe.style.display = 'block';
+            } catch (error) {
+                console.error("Error communicating with AIManager:", error);
+                alert("Failed to generate game. Check console for details.");
+            } finally {
+                // Restore UI State
+                btn.disabled = false;
+                btn.innerText = "Create Game";
+                loading.style.display = 'none';
             }
         });
-        this.sectorMeshes.delete(key);
-      }
-    }
-    // Fetch/Gen
-    const keysToFetch = keysNeeded.filter(k => !this.sectorData.has(k) && !this.pendingKeys.has(k));
-    if (keysToFetch.length > 0) {
-      await this.fetchSectors(keysToFetch);
-    }
-    // Build
-    keysNeeded.forEach(key => {
-      if (this.sectorData.has(key) && !this.sectorMeshes.has(key)) {
-        this.buildSector(key);
-      }
-    });
-  }
-  async fetchSectors(keys) {
-    keys.forEach(k => this.pendingKeys.add(k));
-    keys.forEach(key => {
-        if (!this.sectorData.has(key)) {
-            const generated = this.generateSector(key);
-            this.sectorData.set(key, generated);
-        }
-        this.pendingKeys.delete(key);
-    });
-  }
-  generateSector(key) {
-    const uConf = this.config.universe;
-    const pConf = this.config.planets;
-    const bConf = this.config.blackholes;
-    const aConf = this.config.asteroids;
-    const [sx, sz] = key.split(":").map(Number);
-    // Safe Zone
-    if (sx === 0 && sz === 0) return [];
-    if (Math.random() < uConf.voidChance) return [];
-    const objects = [];
-    // 1. Planets / Blackholes
-    const count = Math.floor(rand(pConf.minCount, pConf.maxCount));
-    for (let i = 0; i < count; i++) {
-      const isBlackHole = Math.random() < bConf.chance;
-      let r;
-      if (isBlackHole) {
-          r = rand(bConf.radiusMin, bConf.radiusMax);
-      } else {
-          r = rand(pConf.radiusMin, pConf.radiusMax);
-      }
-      // [FIX] Calculate Float Height
-      // Planets float above the grid (y=0).
-      // We set y = radius + small_gap so they sit "on top" of the warp.
-      const floatHeight = r + 2.0;
-      const massScale = isBlackHole ? bConf.massMultiplier : pConf.massMultiplier;
-      const mass = isBlackHole ? (r * r * massScale) : (r * massScale);
-      const lx = (Math.random() * uConf.sectorSize) - (uConf.sectorSize/2);
-      const lz = (Math.random() * uConf.sectorSize) - (uConf.sectorSize/2);
-      objects.push({
-        x: sx * uConf.sectorSize + lx,
-        y: floatHeight, // [FIX] Applied here
-        z: sz * uConf.sectorSize + lz,
-        r: r,
-        mass: mass,
-        type: isBlackHole ? "blackhole" : "planet",
-        colorHue: Math.random()
-      });
-    }
-    // 2. Free Floating Asteroids
-    const asteroidCount = Math.floor(rand(aConf.minSectorAsteroids, aConf.maxSectorAsteroids));
-    for(let j=0; j<asteroidCount; j++) {
-        const lx = (Math.random() * uConf.sectorSize) - (uConf.sectorSize/2);
-        const lz = (Math.random() * uConf.sectorSize) - (uConf.sectorSize/2);
-        objects.push({
-            x: sx * uConf.sectorSize + lx,
-            y: rand(4, 10), // Raised slightly to match new planet heights
-            z: sz * uConf.sectorSize + lz,
-            r: rand(0.5, 1.2),
-            type: "asteroid"
-        });
-    }
-    return objects;
-  }
-  buildSector(key) {
-    const data = this.sectorData.get(key);
-    const meshes = [];
-    data.forEach(pData => {
-      if (pData.type === 'asteroid') {
-          const physData = createFreeAsteroid(pData);
-          const mesh = physData.mesh;
-          mesh.userData = { ...pData, physics: physData };
-          this.scene.add(mesh);
-          meshes.push(mesh);
-      } else {
-          const mesh = createPlanetMesh(pData);
-          mesh.position.set(pData.x, pData.y, pData.z);
-          if (pData.type !== 'blackhole') {
-            const moons = createMoonSystem(mesh, this.config.moons);
-            mesh.userData.moons = moons;
-          }
-          this.scene.add(mesh);
-          mesh.userData = { ...mesh.userData, ...pData };
-          meshes.push(mesh);
-      }
-    });
-    this.sectorMeshes.set(key, meshes);
-  }
-  updateShaderGravity() {
-    let allPlanets = [];
-    for (const meshes of this.sectorMeshes.values()) {
-        meshes.forEach(m => {
-            if (m.userData.type === 'planet' || m.userData.type === 'blackhole') {
-                allPlanets.push(m);
-            }
-        });
-    }
-    allPlanets.sort((a, b) => a.position.distanceToSquared(this.shipPos) - b.position.distanceToSquared(this.shipPos));
-    const closest = allPlanets.slice(0, MAX_SHADER_PLANETS);
-    this.activePlanets = closest;
-    this.uniforms.uPlanetCount.value = closest.length;
-    for (let i = 0; i < MAX_SHADER_PLANETS; i++) {
-      if (i < closest.length) {
-        this.uniforms.uPlanetPos.value[i].copy(closest[i].position);
-        this.uniforms.uPlanetMass.value[i] = closest[i].userData.mass;
-      } else {
-        this.uniforms.uPlanetPos.value[i].set(99999, 99999, 99999);
-        this.uniforms.uPlanetMass.value[i] = 0;
-      }
-    }
-  }
-}
+    </script>
+</body>
+</html>
 ================================================================================

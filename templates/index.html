@@ -3,48 +3,225 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alien Cargo</title>
-
-    <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
-
+    <title>Alien Cargo - Game Generator</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: monospace; }
-        canvas { display: block; }
-        #phaserMount { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
-
-        /* THE TOOLBOX (Hidden by default) */
-        #toolbox {
-            display: none; /* Toggled by '1' */
-            position: absolute;
-            top: 10px; right: 10px;
-            width: 300px;
-            max-height: 90vh;
-            background: rgba(0, 10, 20, 0.85);
-            border: 1px solid #446688;
-            color: #00ffcc;
-            padding: 15px;
-            overflow-y: auto;
-            z-index: 100;
-            backdrop-filter: blur(4px);
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 10px;
+            height: 100vh;
+            box-sizing: border-box;
+            overflow: hidden;
         }
-        #toolbox h2 { margin-top: 0; font-size: 16px; border-bottom: 1px solid #446688; padding-bottom: 5px; }
-        .control-group { margin-bottom: 15px; border-bottom: 1px dashed #334455; padding-bottom: 10px; }
-        .control-group h3 { margin: 0 0 5px 0; font-size: 14px; color: #88aacc; text-transform: uppercase; }
-        .slider-row { display: flex; flex-direction: column; margin-bottom: 8px; }
-        .slider-label { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; }
-        input[type=range] { width: 100%; cursor: pointer; }
+        h1 {
+            color: #00d2ff;
+            margin: 5px 0 0 0;
+            font-size: 24px;
+        }
+        p.subtitle {
+            color: #aaaaaa;
+            margin: 5px 0 10px 0;
+            font-size: 14px;
+        }
+        #generator-ui {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        textarea {
+            width: 100%;
+            height: 60px;
+            padding: 10px;
+            font-size: 14px;
+            font-family: inherit;
+            background-color: #1e1e1e;
+            color: #ffffff;
+            border: 1px solid #333;
+            border-radius: 8px;
+            resize: none;
+            box-sizing: border-box;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #00d2ff;
+        }
+        button {
+            padding: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        button:active {
+            transform: scale(0.98);
+        }
+        button:disabled {
+            background: #555555;
+            color: #888888;
+            cursor: not-allowed;
+            transform: none;
+        }
+        /* Container scales dynamically. */
+        #game-container {
+            flex: 1;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 0;
+        }
+        /* Lock aspect ratio. */
+        #game-wrapper {
+            background-color: #000000;
+            border: 2px solid #333;
+            border-radius: 4px;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            aspect-ratio: 16/9;
+            height: 100%;
+            max-width: 100%;
+        }
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            border-radius: 4px;
+            background-color: #000;
+        }
+        #loading {
+            display: none;
+            position: absolute;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            color: #00d2ff;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 4px solid rgba(0, 210, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #00d2ff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
-    <div id="phaserMount"></div>
-    <canvas id="threeCanvas"></canvas>
-
-    <div id="toolbox">
-        <h2>System Tuning (Press '1' to Close)</h2>
-        <div id="toolbox-content"></div>
-        <button id="saveBtn" style="width:100%; margin-top:10px; background:#004444; color:#fff; border:none; padding:5px; cursor:pointer;">Log Config to Console</button>
+    <h1>Alien Cargo 🛸</h1>
+    <p class="subtitle">AI-Powered Instant Game Generator</p>
+    <div id="generator-ui">
+        <textarea id="game-desc" placeholder="Describe your game... (e.g., A top-down space shooter where you defend cargo ships from alien swarms)"></textarea>
+        <button id="create-btn">Create Game</button>
     </div>
+    <div id="game-container">
+        <div id="game-wrapper">
+            <div id="loading">
+                <div class="spinner"></div>
+                <span>Compiling game logic...</span>
+            </div>
+            <iframe id="game-frame" sandbox="allow-scripts"></iframe>
+        </div>
+    </div>
+    <script>
+        // Use local Flask API route.
+        const FLASK_API_URL = "/generate_game";
 
-    <script type="module" src="/static/js/blackhole/main.js"></script>
+        // Handle textarea input logging.
+        document.getElementById('game-desc').addEventListener('input', () => {
+             console.log("UI Event: Textarea input modified.");
+        });
+
+        // Handle button click logic.
+        document.getElementById('create-btn').addEventListener('click', async () => {
+            console.log("UI Event: 'Create Game' button clicked.");
+
+            const descInput = document.getElementById('game-desc').value.trim();
+            console.log(`Data Event: Read input. Length: ${descInput.length}`);
+
+            if (!descInput) {
+                console.warn("Validation Event: Empty description blocked.");
+                alert("Please describe your game first!");
+                return;
+            }
+
+            const btn = document.getElementById('create-btn');
+            const loading = document.getElementById('loading');
+            const iframe = document.getElementById('game-frame');
+
+            // Update UI state.
+            console.log("UI State: Disabling button, showing loader.");
+            btn.disabled = true;
+            btn.innerText = "Generating...";
+            iframe.style.display = 'none';
+            loading.style.display = 'flex';
+
+            // Clear previous game.
+            console.log("UI State: Cleared previous iframe source.");
+            iframe.srcdoc = "";
+
+            // Prepare payload.
+            const payload = { description: descInput };
+            console.log("Network Event: POST request initiated.", FLASK_API_URL);
+
+            try {
+                const response = await fetch(FLASK_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                console.log(`Network Event: Response received. Status: ${response.status}`);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log("Data Event: JSON payload parsed successfully.");
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // Inject generated game.
+                console.log("UI State: Injecting HTML into iframe.");
+                iframe.srcdoc = data.game_html;
+                iframe.style.display = 'block';
+
+            } catch (error) {
+                console.error("Error Event: API communication failed.", error);
+                alert("Failed to generate game. Check console for details.");
+            } finally {
+                // Restore UI state.
+                console.log("UI State: Restoring interface layout.");
+                btn.disabled = false;
+                btn.innerText = "Create Game";
+                loading.style.display = 'none';
+            }
+        });
+    </script>
 </body>
 </html>

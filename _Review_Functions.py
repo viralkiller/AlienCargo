@@ -582,7 +582,7 @@ if __name__ == "__main__":
         split_at=22650,
         max_lines_per_file=1700,
         truncate_lines=1650,
-        included_extensions=[".js",".md"],
+        included_extensions=[".html",".py",".js",".json"],
         print_only=[],
         exclude_files=[],
         include_files=[],
