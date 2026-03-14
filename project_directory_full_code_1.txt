@@ -1,4 +1,4 @@
-Aggregated on: 2026-03-13 16:52:40
+Aggregated on: 2026-03-14 04:21:40
 ================================================================================
 Project Directory Tree:
 /
@@ -53,17 +53,20 @@ def generate_game():
     try:
         # System instructions for game generation.
         system_instructions = (
-            "You are an expert game developer. Create a single-page HTML game based on the user's description. "
+            "You are an expert game developer. Create a single-page HTML/Phaser and/or ThreeJS game based on the user's description. "
             "Your output must be EXCLUSIVELY valid HTML containing all necessary CSS and JavaScript within it. "
             "CRITICAL REQUIREMENTS: "
-            "1. Standard HTML5 <canvas> centered with 1280x720 resolution. "
-            "2. Arrow keys to move, Enter to start, Space to shoot. "
+            "1. Standard HTML5 <canvas> centered with 800x450 resolution. "
+            "2. Arrow keys to move, Enter to start, Space to shoot (if applicable). "
             "3. MUST feature a Game Over state with Restart option. "
             "4. Do NOT load external images, audio, or libraries. "
             "5. STRICTLY FORBIDDEN: Do NOT use localStorage or sessionStorage. "
             "6. Do not include markdown formatting like ```html. "
             "7. CSS MUST include body { margin: 0; padding: 0; overflow: hidden; background-color: #000; } to prevent scrollbars. "
             "The game must be fully playable and robust."
+            "Essential features include a strict 'lives' system, distinct levels or waves, and retro chiptune audio. "
+            "Gameplay design relies on simple mechanics—like shooting, jumping, or dodging—that are easy to grasp but fiercely difficult to master. "
+            "The primary player incentives are satisfying power-ups, visual progression, and the thrill of surviving chaotic enemy patterns. "
         )
         # Payload for AIManager endpoint.
         payload = {

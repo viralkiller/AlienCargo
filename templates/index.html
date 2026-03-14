@@ -85,6 +85,7 @@
             align-items: center;
             min-height: 0;
             overflow: hidden;
+            position: relative;
         }
         /* Lock aspect ratio. */
         #game-wrapper {
@@ -161,23 +162,77 @@
         // Use local Flask API route.
         const FLASK_API_URL = "/generate_game";
 
+        // Build dynamic JS controls banner.
+        function createControlsBanner() {
+            console.log("UI Event: Building JS controls banner.");
+
+            // Create banner container element.
+            const banner = document.createElement('div');
+            banner.id = 'controls-banner';
+
+            // Apply JS styling to banner.
+            banner.style.position = 'absolute';
+            banner.style.top = '10px';
+            banner.style.left = '50%';
+            banner.style.transform = 'translateX(-50%)';
+            banner.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+            banner.style.color = '#00d2ff';
+            banner.style.padding = '8px 16px';
+            banner.style.borderRadius = '20px';
+            banner.style.fontSize = '12px';
+            banner.style.display = 'flex';
+            banner.style.gap = '15px';
+            banner.style.alignItems = 'center';
+            banner.style.zIndex = '20';
+            banner.style.border = '1px solid #00d2ff';
+
+            // Create controls text content.
+            const text = document.createElement('span');
+            text.innerHTML = '<b>PC:</b> Arrows (Move), Space (Action), Enter (Start) | <b>Mobile:</b> Swipe (Move), Tap (Action), Double-Tap (Start)';
+
+            // Create close button.
+            const closeBtn = document.createElement('button');
+            closeBtn.innerText = 'X';
+
+            // Apply JS styling to button.
+            closeBtn.style.background = 'transparent';
+            closeBtn.style.border = 'none';
+            closeBtn.style.color = '#ff4444';
+            closeBtn.style.cursor = 'pointer';
+            closeBtn.style.fontWeight = 'bold';
+            closeBtn.style.padding = '0';
+
+            // Handle close button click.
+            closeBtn.addEventListener('click', () => {
+                console.log("UI Event: Controls banner closed.");
+                banner.style.display = 'none';
+            });
+
+            // Append elements to DOM.
+            banner.appendChild(text);
+            banner.appendChild(closeBtn);
+            document.getElementById('game-container').appendChild(banner);
+            console.log("DOM Event: Controls banner attached.");
+        }
+
         // Handle loading locally saved game.
         document.addEventListener('DOMContentLoaded', () => {
             console.log("LifeCycle Event: DOM Content Loaded.");
-
             const savedGame = localStorage.getItem('alien_cargo_last_game');
             const savedDesc = localStorage.getItem('alien_cargo_last_desc');
 
             if (savedDesc) {
-                console.log("Storage Event: Restoring previous game description.");
+                console.log("Storage Event: Restoring game description.");
                 document.getElementById('game-desc').value = savedDesc;
             }
-
             if (savedGame) {
-                console.log("Storage Event: Loading locally saved game HTML.");
+                console.log("Storage Event: Loading saved game HTML.");
                 const iframe = document.getElementById('game-frame');
                 iframe.srcdoc = savedGame;
             }
+
+            // Initialize the controls banner.
+            createControlsBanner();
         });
 
         // Handle textarea input logging.
@@ -188,9 +243,8 @@
         // Handle button click logic.
         document.getElementById('create-btn').addEventListener('click', async () => {
             console.log("UI Event: 'Create Game' button clicked.");
-
             const descInput = document.getElementById('game-desc').value.trim();
-            console.log(`Data Event: Read input. Length: ${descInput.length}`);
+            console.log(`Data Event: Input length: ${descInput.length}`);
 
             if (!descInput) {
                 console.warn("Validation Event: Empty description blocked.");
@@ -202,17 +256,17 @@
             const loading = document.getElementById('loading');
             const iframe = document.getElementById('game-frame');
 
-            // Update UI state.
+            // Update UI state to loading.
             console.log("UI State: Disabling button, showing loader.");
             btn.disabled = true;
             btn.innerText = "Generating...";
             loading.style.display = 'flex';
 
-            // Clear previous game.
+            // Clear previous game iframe.
             console.log("UI State: Cleared previous iframe source.");
             iframe.srcdoc = "";
 
-            // Prepare payload.
+            // Prepare request payload.
             const payload = { description: descInput };
             console.log("Network Event: POST request initiated.", FLASK_API_URL);
 
@@ -222,25 +276,23 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-
-                console.log(`Network Event: Response received. Status: ${response.status}`);
+                console.log(`Network Event: Response status: ${response.status}`);
 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-
                 const data = await response.json();
-                console.log("Data Event: JSON payload parsed successfully.");
+                console.log("Data Event: JSON payload parsed.");
 
                 if (data.error) {
                     throw new Error(data.error);
                 }
 
-                // Inject generated game.
+                // Inject generated game HTML.
                 console.log("UI State: Injecting HTML into iframe.");
                 iframe.srcdoc = data.game_html;
 
-                // Save to local storage.
+                // Save state to local storage.
                 localStorage.setItem('alien_cargo_last_game', data.game_html);
                 localStorage.setItem('alien_cargo_last_desc', descInput);
                 console.log("Storage Event: Saved game state locally.");
@@ -249,11 +301,18 @@
                 console.error("Error Event: API communication failed.", error);
                 alert("Failed to generate game. Check console for details.");
             } finally {
-                // Restore UI state.
+                // Restore UI ready state.
                 console.log("UI State: Restoring interface layout.");
                 btn.disabled = false;
                 btn.innerText = "Create Game";
                 loading.style.display = 'none';
+
+                // Ensure banner is visible again.
+                const banner = document.getElementById('controls-banner');
+                if (banner && banner.style.display === 'none') {
+                    console.log("UI Event: Resetting banner visibility.");
+                    banner.style.display = 'flex';
+                }
             }
         });
     </script>
