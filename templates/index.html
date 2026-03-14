@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Alien Cargo - Game Generator</title>
     <style>
         body {
@@ -129,31 +129,60 @@
             font-weight: bold;
             z-index: 10;
         }
-        .spinner {
-            width: 30px;
-            height: 30px;
-            border: 4px solid rgba(0, 210, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: #00d2ff;
-            animation: spin 1s ease-in-out infinite;
+        /* Rotate overlay styles. */
+        #rotate-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.95);
+            z-index: 9999;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #00d2ff;
+            font-size: 20px;
+            font-weight: bold;
         }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        .phone-icon {
+            width: 40px;
+            height: 70px;
+            border: 3px solid #00d2ff;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            animation: tilt 2s infinite ease-in-out;
+        }
+        @keyframes tilt {
+            0% { transform: rotate(0deg); }
+            50% { transform: rotate(90deg); }
+            100% { transform: rotate(90deg); }
+        }
+        /* Force landscape on mobile. */
+        @media screen and (max-width: 768px) and (orientation: portrait) {
+            #rotate-overlay {
+                display: flex;
+            }
         }
     </style>
 </head>
 <body>
+    <div id="rotate-overlay">
+        <div class="phone-icon"></div>
+        <span>Please rotate to landscape</span>
+    </div>
     <h1>Alien Cargo 🛸</h1>
     <p class="subtitle">AI-Powered Instant Game Generator</p>
     <div id="generator-ui">
         <textarea id="game-desc" placeholder="Describe your game... (e.g., A top-down space shooter where you defend cargo ships from alien swarms)"></textarea>
         <button id="create-btn">Create Game</button>
     </div>
+
     <div id="game-container">
         <div id="game-wrapper">
             <div id="loading">
-                <div class="spinner"></div>
-                <span>Compiling game logic...</span>
+                <span id="loading-text">Compiling game logic...</span>
             </div>
             <iframe id="game-frame" sandbox="allow-scripts" scrolling="no"></iframe>
         </div>
@@ -161,6 +190,11 @@
     <script>
         // Use local Flask API route.
         const FLASK_API_URL = "/generate_game";
+
+        // Log orientation changes.
+        window.addEventListener('orientationchange', () => {
+            console.log(`UI Event: Orientation changed to ${window.orientation}.`);
+        });
 
         // Build dynamic JS controls banner.
         function createControlsBanner() {
@@ -188,7 +222,7 @@
 
             // Create controls text content.
             const text = document.createElement('span');
-            text.innerHTML = '<b>PC:</b> Arrows (Move), Space (Action), Enter (Start) | <b>Mobile:</b> Swipe (Move), Tap (Action), Double-Tap (Start)';
+            text.innerHTML = '<b>PC:</b> Arrows, Space, Enter | <b>Mobile:</b> Swipe, Tap, Double-Tap';
 
             // Create close button.
             const closeBtn = document.createElement('button');
@@ -256,6 +290,32 @@
             const loading = document.getElementById('loading');
             const iframe = document.getElementById('game-frame');
 
+            // Set up progress bar UI.
+            let progressContainer = document.getElementById('progress-container');
+            if (!progressContainer) {
+                console.log("UI Event: Building JS progress bar.");
+                progressContainer = document.createElement('div');
+                progressContainer.id = 'progress-container';
+                progressContainer.style.width = '80%';
+                progressContainer.style.height = '15px';
+                progressContainer.style.border = '2px solid #00d2ff';
+                progressContainer.style.borderRadius = '8px';
+                progressContainer.style.overflow = 'hidden';
+
+                const bar = document.createElement('div');
+                bar.id = 'progress-bar';
+                bar.style.width = '0%';
+                bar.style.height = '100%';
+                bar.style.backgroundColor = '#00d2ff';
+                bar.style.transition = 'width 0.2s linear';
+
+                progressContainer.appendChild(bar);
+                loading.insertBefore(progressContainer, document.getElementById('loading-text'));
+            }
+
+            const progressBar = document.getElementById('progress-bar');
+            progressBar.style.width = '0%';
+
             // Update UI state to loading.
             console.log("UI State: Disabling button, showing loader.");
             btn.disabled = true;
@@ -265,6 +325,17 @@
             // Clear previous game iframe.
             console.log("UI State: Cleared previous iframe source.");
             iframe.srcdoc = "";
+
+            // Start fake progress history.
+            let avgTime = parseInt(localStorage.getItem('alien_cargo_avg_time')) || 15000;
+            let startTime = Date.now();
+            console.log(`UI Event: Starting progress bar. Avg: ${avgTime}ms`);
+
+            let progressInterval = setInterval(() => {
+                let elapsed = Date.now() - startTime;
+                let progress = Math.min(90, (elapsed / avgTime) * 100);
+                progressBar.style.width = `${progress}%`;
+            }, 200);
 
             // Prepare request payload.
             const payload = { description: descInput };
@@ -276,11 +347,12 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                console.log(`Network Event: Response status: ${response.status}`);
 
+                console.log(`Network Event: Response status: ${response.status}`);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
+
                 const data = await response.json();
                 console.log("Data Event: JSON payload parsed.");
 
@@ -288,7 +360,19 @@
                     throw new Error(data.error);
                 }
 
-                // Inject generated game HTML.
+                // Finish progress animation.
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                console.log("UI Event: Progress bar completed.");
+
+                // Update running average.
+                if (data.duration_ms) {
+                    let newAvg = (avgTime + data.duration_ms) / 2;
+                    localStorage.setItem('alien_cargo_avg_time', newAvg.toString());
+                    console.log(`Storage Event: Updated average time to ${newAvg}ms.`);
+                }
+
+                // Inject generated game.
                 console.log("UI State: Injecting HTML into iframe.");
                 iframe.srcdoc = data.game_html;
 
@@ -299,13 +383,18 @@
 
             } catch (error) {
                 console.error("Error Event: API communication failed.", error);
+                clearInterval(progressInterval);
                 alert("Failed to generate game. Check console for details.");
+
             } finally {
                 // Restore UI ready state.
                 console.log("UI State: Restoring interface layout.");
-                btn.disabled = false;
-                btn.innerText = "Create Game";
-                loading.style.display = 'none';
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.innerText = "Create Game";
+                    loading.style.display = 'none';
+                    progressBar.style.width = '0%';
+                }, 500); // Visual transition delay.
 
                 // Ensure banner is visible again.
                 const banner = document.getElementById('controls-banner');

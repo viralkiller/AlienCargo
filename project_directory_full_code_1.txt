@@ -1,15 +1,19 @@
-Aggregated on: 2026-03-14 04:21:40
+Aggregated on: 2026-03-14 05:22:14
 ================================================================================
 Project Directory Tree:
 /
 ├── static
+│   ├── icons
+│   │   └── favicon.ico
 │   ├── images
 │   ├── js
 │   ├── json
 │   └── png
-│       ├── spaceship
-│       ├── ship_burners.png
-│       └── ship_off.png
+│       └── common_assets
+│           ├── ferrari_behind_view
+│           └── spaceship_behind_view
+│               ├── ship_behind_view_thrust_off.png
+│               └── ship_behind_view_thrusting.png
 ├── templates
 │   └── index.html
 ├── .bashrc
@@ -21,37 +25,61 @@ Project Directory Tree:
 ├── _Review_Functions.py
 ├── flask_app.py
 ├── general.md
+├── progress_bar.md
+├── progress_tracker.py
 ├── project_directory_full_code_1.txt
 └── README.txt
 
-7 directories, 14 files
+10 directories, 17 files
 ================================================================================
 
 [-] This file: .pythonstartup.py | Contents:
 import rlcompleter
 import readline
+# Enable tab completion.
 readline.parse_and_bind("tab: complete")
 ================================================================================
 
 [-] This file: flask_app.py | Contents:
+import os
 import re
+import time
+import json
+import logging
 import requests
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
+# Setup basic logging configuration.
+logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__)
-# Point to AI manager microservice.
+# Point to AI microservice.
 AI_MANAGER_URL = "https://aimanager.pythonanywhere.com/process_request"
+@app.route('/favicon.ico')
+def favicon():
+    # Return favicon from static directory.
+    app.logger.info("Route hit: /favicon.ico")
+    return send_from_directory(
+        os.path.join(app.root_path, 'static', 'icons'),
+        'favicon.ico',
+        mimetype='image/vnd.microsoft.icon'
+    )
 @app.route('/')
 def index():
-    # Render main page template.
+    # Render main index template.
+    app.logger.info("Route hit: /")
     return render_template('index.html')
 @app.route('/generate_game', methods=['POST'])
 def generate_game():
+    # Parse incoming JSON data.
     data = request.json
     description = data.get('description', '').strip()
+    # Log incoming request payload.
+    app.logger.info(f"Desc length: {len(description)}")
+    # Check for missing description.
     if not description:
-        return jsonify({"error": "Game description required."}), 400
+        app.logger.warning("Missing game description.")
+        return jsonify({"error": "Description required."}), 400
     try:
-        # System instructions for game generation.
+        # Define game generation instructions.
         system_instructions = (
             "You are an expert game developer. Create a single-page HTML/Phaser and/or ThreeJS game based on the user's description. "
             "Your output must be EXCLUSIVELY valid HTML containing all necessary CSS and JavaScript within it. "
@@ -63,12 +91,13 @@ def generate_game():
             "5. STRICTLY FORBIDDEN: Do NOT use localStorage or sessionStorage. "
             "6. Do not include markdown formatting like ```html. "
             "7. CSS MUST include body { margin: 0; padding: 0; overflow: hidden; background-color: #000; } to prevent scrollbars. "
+            "8. MOBILE SUPPORT: Implement touch event listeners natively. Map Swipe Up/Down/Left/Right to Arrow Keys. Map Single Tap to Space (shoot). Map Double Tap to Enter (start/restart). "
             "The game must be fully playable and robust."
             "Essential features include a strict 'lives' system, distinct levels or waves, and retro chiptune audio. "
             "Gameplay design relies on simple mechanics—like shooting, jumping, or dodging—that are easy to grasp but fiercely difficult to master. "
             "The primary player incentives are satisfying power-ups, visual progression, and the thrill of surviving chaotic enemy patterns. "
         )
-        # Payload for AIManager endpoint.
+        # Build payload for AIManager.
         payload = {
             "provider": "anthropic",
             "model_key": "claude-sonnet-4-5-20250929",
@@ -78,28 +107,99 @@ def generate_game():
                 "max_tokens": 8000
             }
         }
-        # Send request to AI manager.
+        # Send request and time it.
+        app.logger.debug("Dispatching request to AI Manager.")
+        start_time = time.time()
         response = requests.post(AI_MANAGER_URL, json=payload, timeout=120)
         response.raise_for_status()
         manager_data = response.json()
+        # Calculate execution duration.
+        duration_ms = (time.time() - start_time) * 1000
+        app.logger.info(f"Generation took {duration_ms:.2f}ms.")
         # Extract code from response.
         outputs = manager_data.get('outputs', [])
         if not outputs:
-            return jsonify({"error": "AIManager returned empty response."}), 502
+            app.logger.error("Empty outputs from AI Manager.")
+            return jsonify({"error": "Empty response returned."}), 502
         generated_code = outputs[0]
-        # Cleanup markdown tags.
+        # Cleanup markdown code tags.
         generated_code = re.sub(r'^```html\s*', '', generated_code)
         generated_code = re.sub(r'^```\s*', '', generated_code)
         generated_code = re.sub(r'\s*```$', '', generated_code)
-        return jsonify({"game_html": generated_code.strip()})
+        # Return cleaned game output.
+        app.logger.info("Successfully cleaned generated game.")
+        return jsonify({
+            "game_html": generated_code.strip(),
+            "duration_ms": duration_ms
+        })
     except requests.exceptions.RequestException as e:
-        # Handle connection errors.
-        return jsonify({"error": f"Failed communicating with AIManager: {str(e)}"}), 502
+        # Log and handle connection errors.
+        app.logger.error(f"Connection error: {e}")
+        return jsonify({"error": f"Connection error: {str(e)}"}), 502
     except Exception as e:
-        # Handle general errors.
-        return jsonify({"error": f"Internal formatting error: {str(e)}"}), 500
+        # Log and handle general errors.
+        app.logger.error(f"Internal error: {e}")
+        return jsonify({"error": f"Internal error: {str(e)}"}), 500
 if __name__ == '__main__':
+    # Run the Flask application.
     app.run(debug=True)
+================================================================================
+
+[-] This file: progress_tracker.py | Contents:
+import anthropic
+import logging
+import time
+# Configure verbose logging.
+logging.basicConfig(level=logging.DEBUG)
+def track_batch_progress(batch_id: str):
+    # Init Anthropic client.
+    client = anthropic.Anthropic()
+    logging.debug(f"Starting poll for batch: {batch_id}")
+    while True:
+        # Fetch current batch state.
+        batch = client.messages.batches.retrieve(batch_id)
+        status = batch.processing_status
+        logging.info(f"Current batch status: {status}")
+        if status == "ended":
+            # Exit loop if ended.
+            logging.debug("Batch processing has finished.")
+            break
+        # Log completion metrics.
+        counts = batch.request_counts
+        logging.debug(f"Progress counts: {counts}")
+        # Pause before next poll.
+        logging.info("Sleeping 10s before next poll.")
+        time.sleep(10)
+def stream_request_progress():
+    # Init Anthropic client.
+    client = anthropic.Anthropic()
+    logging.debug("Initiating streaming request.")
+    # Open continuous stream.
+    with client.messages.stream(
+        max_tokens=1024,
+        messages=[{"role": "user", "content": "Explain quantum computing."}],
+        model="claude-opus-4-6",
+    ) as stream:
+        logging.info("Stream connection opened.")
+        # Process stream events.
+        for event in stream:
+            if event.type == "content_block_delta":
+                # Log text chunk.
+                logging.debug("Text delta chunk received.")
+                print(event.delta.text, end="", flush=True)
+            elif event.type == "message_stop":
+                # Log stream stop.
+                logging.info("Message generation stopped.")
+        # Extract final metrics.
+        message = stream.get_final_message()
+        logging.info(f"Final token usage: {message.usage}")
+if __name__ == "__main__":
+    # Start execution.
+    logging.debug("Script execution started.")
+    # Track stream progress.
+    stream_request_progress()
+    # Track batch progress.
+    # track_batch_progress("msgbatch_123")
 ================================================================================
 
 [-] This file: templates/index.html | Contents:
@@ -107,7 +207,7 @@ if __name__ == '__main__':
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Alien Cargo - Game Generator</title>
     <style>
         body {
@@ -190,6 +290,7 @@ if __name__ == '__main__':
             align-items: center;
             min-height: 0;
             overflow: hidden;
+            position: relative;
         }
         /* Lock aspect ratio. */
         #game-wrapper {
@@ -233,20 +334,49 @@ if __name__ == '__main__':
             font-weight: bold;
             z-index: 10;
         }
-        .spinner {
-            width: 30px;
-            height: 30px;
-            border: 4px solid rgba(0, 210, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: #00d2ff;
-            animation: spin 1s ease-in-out infinite;
+        /* Rotate overlay styles. */
+        #rotate-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.95);
+            z-index: 9999;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #00d2ff;
+            font-size: 20px;
+            font-weight: bold;
         }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        .phone-icon {
+            width: 40px;
+            height: 70px;
+            border: 3px solid #00d2ff;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            animation: tilt 2s infinite ease-in-out;
+        }
+        @keyframes tilt {
+            0% { transform: rotate(0deg); }
+            50% { transform: rotate(90deg); }
+            100% { transform: rotate(90deg); }
+        }
+        /* Force landscape on mobile. */
+        @media screen and (max-width: 768px) and (orientation: portrait) {
+            #rotate-overlay {
+                display: flex;
+            }
         }
     </style>
 </head>
 <body>
+    <div id="rotate-overlay">
+        <div class="phone-icon"></div>
+        <span>Please rotate to landscape</span>
+    </div>
     <h1>Alien Cargo 🛸</h1>
     <p class="subtitle">AI-Powered Instant Game Generator</p>
     <div id="generator-ui">
@@ -256,8 +386,7 @@ if __name__ == '__main__':
     <div id="game-container">
         <div id="game-wrapper">
             <div id="loading">
-                <div class="spinner"></div>
-                <span>Compiling game logic...</span>
+                <span id="loading-text">Compiling game logic...</span>
             </div>
             <iframe id="game-frame" sandbox="allow-scripts" scrolling="no"></iframe>
         </div>
@@ -265,20 +394,71 @@ if __name__ == '__main__':
     <script>
         // Use local Flask API route.
         const FLASK_API_URL = "/generate_game";
+        // Log orientation changes.
+        window.addEventListener('orientationchange', () => {
+            console.log(`UI Event: Orientation changed to ${window.orientation}.`);
+        });
+        // Build dynamic JS controls banner.
+        function createControlsBanner() {
+            console.log("UI Event: Building JS controls banner.");
+            // Create banner container element.
+            const banner = document.createElement('div');
+            banner.id = 'controls-banner';
+            // Apply JS styling to banner.
+            banner.style.position = 'absolute';
+            banner.style.top = '10px';
+            banner.style.left = '50%';
+            banner.style.transform = 'translateX(-50%)';
+            banner.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+            banner.style.color = '#00d2ff';
+            banner.style.padding = '8px 16px';
+            banner.style.borderRadius = '20px';
+            banner.style.fontSize = '12px';
+            banner.style.display = 'flex';
+            banner.style.gap = '15px';
+            banner.style.alignItems = 'center';
+            banner.style.zIndex = '20';
+            banner.style.border = '1px solid #00d2ff';
+            // Create controls text content.
+            const text = document.createElement('span');
+            text.innerHTML = '<b>PC:</b> Arrows, Space, Enter | <b>Mobile:</b> Swipe, Tap, Double-Tap';
+            // Create close button.
+            const closeBtn = document.createElement('button');
+            closeBtn.innerText = 'X';
+            // Apply JS styling to button.
+            closeBtn.style.background = 'transparent';
+            closeBtn.style.border = 'none';
+            closeBtn.style.color = '#ff4444';
+            closeBtn.style.cursor = 'pointer';
+            closeBtn.style.fontWeight = 'bold';
+            closeBtn.style.padding = '0';
+            // Handle close button click.
+            closeBtn.addEventListener('click', () => {
+                console.log("UI Event: Controls banner closed.");
+                banner.style.display = 'none';
+            });
+            // Append elements to DOM.
+            banner.appendChild(text);
+            banner.appendChild(closeBtn);
+            document.getElementById('game-container').appendChild(banner);
+            console.log("DOM Event: Controls banner attached.");
+        }
         // Handle loading locally saved game.
         document.addEventListener('DOMContentLoaded', () => {
             console.log("LifeCycle Event: DOM Content Loaded.");
             const savedGame = localStorage.getItem('alien_cargo_last_game');
             const savedDesc = localStorage.getItem('alien_cargo_last_desc');
             if (savedDesc) {
-                console.log("Storage Event: Restoring previous game description.");
+                console.log("Storage Event: Restoring game description.");
                 document.getElementById('game-desc').value = savedDesc;
             }
             if (savedGame) {
-                console.log("Storage Event: Loading locally saved game HTML.");
+                console.log("Storage Event: Loading saved game HTML.");
                 const iframe = document.getElementById('game-frame');
                 iframe.srcdoc = savedGame;
             }
+            // Initialize the controls banner.
+            createControlsBanner();
         });
         // Handle textarea input logging.
         document.getElementById('game-desc').addEventListener('input', () => {
@@ -288,7 +468,7 @@ if __name__ == '__main__':
         document.getElementById('create-btn').addEventListener('click', async () => {
             console.log("UI Event: 'Create Game' button clicked.");
             const descInput = document.getElementById('game-desc').value.trim();
-            console.log(`Data Event: Read input. Length: ${descInput.length}`);
+            console.log(`Data Event: Input length: ${descInput.length}`);
             if (!descInput) {
                 console.warn("Validation Event: Empty description blocked.");
                 alert("Please describe your game first!");
@@ -297,15 +477,46 @@ if __name__ == '__main__':
             const btn = document.getElementById('create-btn');
             const loading = document.getElementById('loading');
             const iframe = document.getElementById('game-frame');
-            // Update UI state.
+            // Set up progress bar UI.
+            let progressContainer = document.getElementById('progress-container');
+            if (!progressContainer) {
+                console.log("UI Event: Building JS progress bar.");
+                progressContainer = document.createElement('div');
+                progressContainer.id = 'progress-container';
+                progressContainer.style.width = '80%';
+                progressContainer.style.height = '15px';
+                progressContainer.style.border = '2px solid #00d2ff';
+                progressContainer.style.borderRadius = '8px';
+                progressContainer.style.overflow = 'hidden';
+                const bar = document.createElement('div');
+                bar.id = 'progress-bar';
+                bar.style.width = '0%';
+                bar.style.height = '100%';
+                bar.style.backgroundColor = '#00d2ff';
+                bar.style.transition = 'width 0.2s linear';
+                progressContainer.appendChild(bar);
+                loading.insertBefore(progressContainer, document.getElementById('loading-text'));
+            }
+            const progressBar = document.getElementById('progress-bar');
+            progressBar.style.width = '0%';
+            // Update UI state to loading.
             console.log("UI State: Disabling button, showing loader.");
             btn.disabled = true;
             btn.innerText = "Generating...";
             loading.style.display = 'flex';
-            // Clear previous game.
+            // Clear previous game iframe.
             console.log("UI State: Cleared previous iframe source.");
             iframe.srcdoc = "";
-            // Prepare payload.
+            // Start fake progress based on history.
+            let avgTime = parseInt(localStorage.getItem('alien_cargo_avg_time')) || 15000;
+            let startTime = Date.now();
+            console.log(`UI Event: Starting progress bar. Avg: ${avgTime}ms`);
+            let progressInterval = setInterval(() => {
+                let elapsed = Date.now() - startTime;
+                let progress = Math.min(90, (elapsed / avgTime) * 100);
+                progressBar.style.width = `${progress}%`;
+            }, 200);
+            // Prepare request payload.
             const payload = { description: descInput };
             console.log("Network Event: POST request initiated.", FLASK_API_URL);
             try {
@@ -314,31 +525,51 @@ if __name__ == '__main__':
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                console.log(`Network Event: Response received. Status: ${response.status}`);
+                console.log(`Network Event: Response status: ${response.status}`);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 const data = await response.json();
-                console.log("Data Event: JSON payload parsed successfully.");
+                console.log("Data Event: JSON payload parsed.");
                 if (data.error) {
                     throw new Error(data.error);
+                }
+                // Finish progress animation.
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                console.log("UI Event: Progress bar completed.");
+                // Update running average.
+                if (data.duration_ms) {
+                    let newAvg = (avgTime + data.duration_ms) / 2;
+                    localStorage.setItem('alien_cargo_avg_time', newAvg.toString());
+                    console.log(`Storage Event: Updated average time to ${newAvg}ms.`);
                 }
                 // Inject generated game.
                 console.log("UI State: Injecting HTML into iframe.");
                 iframe.srcdoc = data.game_html;
-                // Save to local storage.
+                // Save state to local storage.
                 localStorage.setItem('alien_cargo_last_game', data.game_html);
                 localStorage.setItem('alien_cargo_last_desc', descInput);
                 console.log("Storage Event: Saved game state locally.");
             } catch (error) {
                 console.error("Error Event: API communication failed.", error);
+                clearInterval(progressInterval);
                 alert("Failed to generate game. Check console for details.");
             } finally {
-                // Restore UI state.
+                // Restore UI ready state.
                 console.log("UI State: Restoring interface layout.");
-                btn.disabled = false;
-                btn.innerText = "Create Game";
-                loading.style.display = 'none';
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.innerText = "Create Game";
+                    loading.style.display = 'none';
+                    progressBar.style.width = '0%';
+                }, 500); // Slight delay for smooth visual transition.
+                // Ensure banner is visible again.
+                const banner = document.getElementById('controls-banner');
+                if (banner && banner.style.display === 'none') {
+                    console.log("UI Event: Resetting banner visibility.");
+                    banner.style.display = 'flex';
+                }
             }
         });
     </script>
