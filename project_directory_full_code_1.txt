@@ -1,4 +1,4 @@
-Aggregated on: 2026-03-14 05:22:14
+Aggregated on: 2026-03-15 08:00:38
 ================================================================================
 Project Directory Tree:
 /
@@ -91,11 +91,12 @@ def generate_game():
             "5. STRICTLY FORBIDDEN: Do NOT use localStorage or sessionStorage. "
             "6. Do not include markdown formatting like ```html. "
             "7. CSS MUST include body { margin: 0; padding: 0; overflow: hidden; background-color: #000; } to prevent scrollbars. "
-            "8. MOBILE SUPPORT: Implement touch event listeners natively. Map Swipe Up/Down/Left/Right to Arrow Keys. Map Single Tap to Space (shoot). Map Double Tap to Enter (start/restart). "
-            "The game must be fully playable and robust."
+            "8. MOBILE SUPPORT: Implement touch event listeners natively. Map Swipe Up/Down/Left/Right to Arrow Keys. "
+            "Map Single Tap to Space (shoot). Map Double Tap to Enter (start/restart). "
+            "The game must be fully playable and robust. "
             "Essential features include a strict 'lives' system, distinct levels or waves, and retro chiptune audio. "
             "Gameplay design relies on simple mechanics—like shooting, jumping, or dodging—that are easy to grasp but fiercely difficult to master. "
-            "The primary player incentives are satisfying power-ups, visual progression, and the thrill of surviving chaotic enemy patterns. "
+            "The primary player incentives are satisfying power-ups, visual progression, and the thrill of surviving chaotic enemy patterns."
         )
         # Build payload for AIManager.
         payload = {
@@ -146,53 +147,71 @@ if __name__ == '__main__':
 ================================================================================
 
 [-] This file: progress_tracker.py | Contents:
-import anthropic
-import logging
 import time
+import json
+import logging
+import requests
 # Configure verbose logging.
 logging.basicConfig(level=logging.DEBUG)
+# Define microservice base URL.
+AI_MANAGER_URL = "https://aimanager.pythonanywhere.com"
 def track_batch_progress(batch_id: str):
-    # Init Anthropic client.
-    client = anthropic.Anthropic()
+    # Log starting poll event.
     logging.debug(f"Starting poll for batch: {batch_id}")
     while True:
-        # Fetch current batch state.
-        batch = client.messages.batches.retrieve(batch_id)
-        status = batch.processing_status
-        logging.info(f"Current batch status: {status}")
-        if status == "ended":
-            # Exit loop if ended.
-            logging.debug("Batch processing has finished.")
-            break
-        # Log completion metrics.
-        counts = batch.request_counts
-        logging.debug(f"Progress counts: {counts}")
+        try:
+            # Fetch current batch state.
+            url = f"{AI_MANAGER_URL}/batch/{batch_id}"
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            batch = response.json()
+            # Extract and log status.
+            status = batch.get("processing_status")
+            logging.info(f"Current batch status: {status}")
+            if status == "ended":
+                # Exit loop if ended.
+                logging.debug("Batch processing has finished.")
+                break
+            # Log completion metrics.
+            counts = batch.get("request_counts", {})
+            logging.debug(f"Progress counts: {counts}")
+        except requests.exceptions.RequestException as e:
+            # Log connection error.
+            logging.error(f"Error fetching batch: {e}")
         # Pause before next poll.
         logging.info("Sleeping 10s before next poll.")
         time.sleep(10)
 def stream_request_progress():
-    # Init Anthropic client.
-    client = anthropic.Anthropic()
+    # Log streaming request start.
     logging.debug("Initiating streaming request.")
-    # Open continuous stream.
-    with client.messages.stream(
-        max_tokens=1024,
-        messages=[{"role": "user", "content": "Explain quantum computing."}],
-        model="claude-opus-4-6",
-    ) as stream:
-        logging.info("Stream connection opened.")
-        # Process stream events.
-        for event in stream:
-            if event.type == "content_block_delta":
-                # Log text chunk.
-                logging.debug("Text delta chunk received.")
-                print(event.delta.text, end="", flush=True)
-            elif event.type == "message_stop":
-                # Log stream stop.
-                logging.info("Message generation stopped.")
-        # Extract final metrics.
-        message = stream.get_final_message()
-        logging.info(f"Final token usage: {message.usage}")
+    # Define microservice payload.
+    payload = {
+        "provider": "anthropic",
+        "model_key": "claude-opus-4-6",
+        "query": "Explain quantum computing.",
+        "parameters": {
+            "stream": True,
+            "max_tokens": 1024
+        }
+    }
+    try:
+        # Open continuous stream.
+        url = f"{AI_MANAGER_URL}/stream"
+        with requests.post(url, json=payload, stream=True, timeout=120) as resp:
+            resp.raise_for_status()
+            logging.info("Stream connection opened.")
+            # Process stream events.
+            for line in resp.iter_lines():
+                if line:
+                    # Log text chunk.
+                    logging.debug("Text delta chunk received.")
+                    # Decode and print line.
+                    print(line.decode('utf-8'), end="", flush=True)
+            # Log stream stop.
+            logging.info("\nMessage generation stopped.")
+    except requests.exceptions.RequestException as e:
+        # Log connection error.
+        logging.error(f"Streaming connection error: {e}")
 if __name__ == "__main__":
     # Start execution.
     logging.debug("Script execution started.")
@@ -507,7 +526,7 @@ if __name__ == "__main__":
             // Clear previous game iframe.
             console.log("UI State: Cleared previous iframe source.");
             iframe.srcdoc = "";
-            // Start fake progress based on history.
+            // Start fake progress history.
             let avgTime = parseInt(localStorage.getItem('alien_cargo_avg_time')) || 15000;
             let startTime = Date.now();
             console.log(`UI Event: Starting progress bar. Avg: ${avgTime}ms`);
@@ -563,7 +582,7 @@ if __name__ == "__main__":
                     btn.innerText = "Create Game";
                     loading.style.display = 'none';
                     progressBar.style.width = '0%';
-                }, 500); // Slight delay for smooth visual transition.
+                }, 500); // Visual transition delay.
                 // Ensure banner is visible again.
                 const banner = document.getElementById('controls-banner');
                 if (banner && banner.style.display === 'none') {

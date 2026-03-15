@@ -1,88 +1,86 @@
-import time
+import os
 import json
 import logging
-import requests
 
-# Configure verbose logging.
+# Setup basic logging configuration.
 logging.basicConfig(level=logging.DEBUG)
 
-# Define microservice base URL.
-AI_MANAGER_URL = "https://aimanager.pythonanywhere.com"
+# Define local storage path.
+STORAGE_FILE = "generation_times.json"
 
-def track_batch_progress(batch_id: str):
-    # Log starting poll event.
-    logging.debug(f"Starting poll for batch: {batch_id}")
-
-    while True:
-        try:
-            # Fetch current batch state.
-            url = f"{AI_MANAGER_URL}/batch/{batch_id}"
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-            batch = response.json()
-
-            # Extract and log status.
-            status = batch.get("processing_status")
-            logging.info(f"Current batch status: {status}")
-
-            if status == "ended":
-                # Exit loop if ended.
-                logging.debug("Batch processing has finished.")
-                break
-
-            # Log completion metrics.
-            counts = batch.get("request_counts", {})
-            logging.debug(f"Progress counts: {counts}")
-
-        except requests.exceptions.RequestException as e:
-            # Log connection error.
-            logging.error(f"Error fetching batch: {e}")
-
-        # Pause before next poll.
-        logging.info("Sleeping 10s before next poll.")
-        time.sleep(10)
-
-def stream_request_progress():
-    # Log streaming request start.
-    logging.debug("Initiating streaming request.")
-
-    # Define microservice payload.
-    payload = {
-        "provider": "anthropic",
-        "model_key": "claude-opus-4-6",
-        "query": "Explain quantum computing.",
-        "parameters": {
-            "stream": True,
-            "max_tokens": 1024
-        }
-    }
+def load_times():
+    # Check if storage file exists.
+    logging.debug(f"Checking for file: {STORAGE_FILE}")
+    if not os.path.exists(STORAGE_FILE):
+        # Log missing file.
+        logging.info("Storage file not found.")
+        return []
 
     try:
-        # Open continuous stream.
-        url = f"{AI_MANAGER_URL}/stream"
-        with requests.post(url, json=payload, stream=True, timeout=120) as resp:
-            resp.raise_for_status()
-            logging.info("Stream connection opened.")
+        # Read and parse JSON file.
+        logging.debug("Opening file for reading.")
+        with open(STORAGE_FILE, 'r') as f:
+            data = json.load(f)
+        # Log successful read.
+        logging.info(f"Loaded {len(data)} time records.")
+        return data
+    except Exception as e:
+        # Log file read error.
+        logging.error(f"Error reading file: {e}")
+        return []
 
-            # Process stream events.
-            for line in resp.iter_lines():
-                if line:
-                    # Log text chunk.
-                    logging.debug("Text delta chunk received.")
-                    # Decode and print line.
-                    print(line.decode('utf-8'), end="", flush=True)
+def save_time(duration_ms):
+    # Log save request.
+    logging.debug(f"Saving new duration: {duration_ms}ms")
 
-            # Log stream stop.
-            logging.info("\nMessage generation stopped.")
+    # Load existing time records.
+    times = load_times()
 
-    except requests.exceptions.RequestException as e:
-        # Log connection error.
-        logging.error(f"Streaming connection error: {e}")
+    # Append new duration.
+    times.append(duration_ms)
+    logging.debug("Appended duration to list.")
+
+    try:
+        # Write list to JSON file.
+        logging.debug("Opening file for writing.")
+        with open(STORAGE_FILE, 'w') as f:
+            json.dump(times, f)
+        # Log successful write.
+        logging.info("Successfully saved times to disk.")
+    except Exception as e:
+        # Log write error.
+        logging.error(f"Error writing file: {e}")
+
+def get_average_time():
+    # Log average calculation request.
+    logging.debug("Calculating average generation time.")
+
+    # Load current times.
+    times = load_times()
+
+    if not times:
+        # Return default if no data.
+        logging.info("No data. Returning default 15000ms.")
+        return 15000.0
+
+    # Calculate mathematical average.
+    avg = sum(times) / len(times)
+
+    # Log calculated average.
+    logging.info(f"Calculated average: {avg:.2f}ms")
+    return avg
 
 if __name__ == "__main__":
-    # Start execution.
-    logging.debug("Script execution started.")
-    # Track stream progress.
-    stream_request_progress()
-    # Track batch progress.
-    # track_batch_progress("msgbatch_123")
+    # Log script start.
+    logging.debug("Progress tracker execution started.")
+
+    # Test saving a time.
+    logging.info("Testing save function.")
+    save_time(14500)
+
+    # Test retrieving average.
+    logging.info("Testing average calculation.")
+    avg_time = get_average_time()
+
+    # Log script end.
+    logging.debug("Progress tracker execution finished.")

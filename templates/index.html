@@ -5,331 +5,208 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Alien Cargo - Game Generator</title>
     <style>
+        /* Minimal CSS, JS handles layout. */
         body {
             background-color: #121212;
             color: #ffffff;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            font-family: sans-serif;
             margin: 0;
-            padding: 10px;
-            height: 100vh;
-            box-sizing: border-box;
+            padding: 0;
             overflow: hidden;
-        }
-        h1 {
-            color: #00d2ff;
-            margin: 5px 0 0 0;
-            font-size: 24px;
-        }
-        p.subtitle {
-            color: #aaaaaa;
-            margin: 5px 0 10px 0;
-            font-size: 14px;
-        }
-        #generator-ui {
-            width: 100%;
-            max-width: 800px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        textarea {
-            width: 100%;
-            height: 60px;
-            padding: 10px;
-            font-size: 14px;
-            font-family: inherit;
-            background-color: #1e1e1e;
-            color: #ffffff;
-            border: 1px solid #333;
-            border-radius: 8px;
-            resize: none;
-            box-sizing: border-box;
-        }
-        textarea:focus {
-            outline: none;
-            border-color: #00d2ff;
-        }
-        button {
-            padding: 10px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
-            color: #ffffff;
-            border: none;
-            border-radius: 8px;
-            transition: opacity 0.2s, transform 0.1s;
-        }
-        button:hover {
-            opacity: 0.9;
-        }
-        button:active {
-            transform: scale(0.98);
-        }
-        button:disabled {
-            background: #555555;
-            color: #888888;
-            cursor: not-allowed;
-            transform: none;
-        }
-        /* Container scales dynamically. */
-        #game-container {
-            flex: 1;
-            width: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 0;
-            overflow: hidden;
-            position: relative;
-        }
-        /* Lock aspect ratio. */
-        #game-wrapper {
-            background-color: #000000;
-            border: 2px solid #333;
-            border-radius: 4px;
-            position: relative;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            aspect-ratio: 16/9;
-            height: 100%;
-            max-width: 100%;
-            overflow: hidden;
-        }
-        iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-            border-radius: 4px;
-            background-color: #000;
-            display: block;
-            overflow: hidden;
-        }
-        /* Overlay loading screen. */
-        #loading {
-            display: none;
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: #000000;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            gap: 15px;
-            color: #00d2ff;
-            font-size: 18px;
-            font-weight: bold;
-            z-index: 10;
-        }
-        /* Rotate overlay styles. */
-        #rotate-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
             width: 100vw;
             height: 100vh;
-            background-color: rgba(0, 0, 0, 0.95);
-            z-index: 9999;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            color: #00d2ff;
-            font-size: 20px;
+        }
+        #toggle-btn {
+            background: #3a7bd5;
+            color: #fff;
+            border: none;
+            cursor: pointer;
             font-weight: bold;
+            font-size: 20px;
+            z-index: 100;
         }
-        .phone-icon {
-            width: 40px;
-            height: 70px;
-            border: 3px solid #00d2ff;
-            border-radius: 6px;
-            margin-bottom: 20px;
-            animation: tilt 2s infinite ease-in-out;
-        }
-        @keyframes tilt {
-            0% { transform: rotate(0deg); }
-            50% { transform: rotate(90deg); }
-            100% { transform: rotate(90deg); }
-        }
-        /* Force landscape on mobile. */
-        @media screen and (max-width: 768px) and (orientation: portrait) {
-            #rotate-overlay {
-                display: flex;
-            }
+        #toggle-btn:hover { background: #00d2ff; }
+
+        iframe {
+            border: none;
+            background-color: #000;
         }
     </style>
 </head>
 <body>
-    <div id="rotate-overlay">
-        <div class="phone-icon"></div>
-        <span>Please rotate to landscape</span>
-    </div>
-    <h1>Alien Cargo 🛸</h1>
-    <p class="subtitle">AI-Powered Instant Game Generator</p>
-    <div id="generator-ui">
-        <textarea id="game-desc" placeholder="Describe your game... (e.g., A top-down space shooter where you defend cargo ships from alien swarms)"></textarea>
-        <button id="create-btn">Create Game</button>
-    </div>
+    <button id="toggle-btn">&lt;</button>
 
-    <div id="game-container">
-        <div id="game-wrapper">
-            <div id="loading">
-                <span id="loading-text">Compiling game logic...</span>
-            </div>
-            <iframe id="game-frame" sandbox="allow-scripts" scrolling="no"></iframe>
+    <div id="prompt-area">
+        <h1 style="color: #00d2ff; margin-bottom: 5px;">Alien Cargo 🛸</h1>
+        <p style="color: #aaa; margin-top: 0;">AI-Powered Instant Game Generator</p>
+        <textarea id="game-desc" placeholder="Describe your game..."></textarea>
+        <button id="create-btn">Create Game</button>
+        <div id="loading" style="display: none; color: #00d2ff; margin-top: 15px;">
+            <span id="loading-text">Compiling game logic...</span>
         </div>
     </div>
+
+    <div id="game-area">
+        <iframe id="game-frame" sandbox="allow-scripts allow-same-origin" scrolling="no"></iframe>
+    </div>
+
     <script>
-        // Use local Flask API route.
+        // Define endpoints and state.
         const FLASK_API_URL = "/generate_game";
+        let isGameView = false;
 
-        // Log orientation changes.
-        window.addEventListener('orientationchange', () => {
-            console.log(`UI Event: Orientation changed to ${window.orientation}.`);
-        });
+        // Grab DOM elements.
+        const toggleBtn = document.getElementById('toggle-btn');
+        const promptArea = document.getElementById('prompt-area');
+        const gameArea = document.getElementById('game-area');
+        const iframe = document.getElementById('game-frame');
+        const createBtn = document.getElementById('create-btn');
 
-        // Build dynamic JS controls banner.
-        function createControlsBanner() {
-            console.log("UI Event: Building JS controls banner.");
+        // JS enforced layout.
+        function applyLayout() {
+            console.log("UI Event: Applying grid layout.");
 
-            // Create banner container element.
-            const banner = document.createElement('div');
-            banner.id = 'controls-banner';
+            document.body.style.display = 'grid';
+            document.body.style.gridTemplateColumns = 'repeat(32, 1fr)';
+            document.body.style.gridTemplateRows = '100vh';
 
-            // Apply JS styling to banner.
-            banner.style.position = 'absolute';
-            banner.style.top = '10px';
-            banner.style.left = '50%';
-            banner.style.transform = 'translateX(-50%)';
-            banner.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
-            banner.style.color = '#00d2ff';
-            banner.style.padding = '8px 16px';
-            banner.style.borderRadius = '20px';
-            banner.style.fontSize = '12px';
-            banner.style.display = 'flex';
-            banner.style.gap = '15px';
-            banner.style.alignItems = 'center';
-            banner.style.zIndex = '20';
-            banner.style.border = '1px solid #00d2ff';
+            // Style Toggle Button.
+            toggleBtn.style.height = '100vh';
+            toggleBtn.style.width = '100%';
 
-            // Create controls text content.
-            const text = document.createElement('span');
-            text.innerHTML = '<b>PC:</b> Arrows, Space, Enter | <b>Mobile:</b> Swipe, Tap, Double-Tap';
+            // Style Prompt Area.
+            promptArea.style.display = 'flex';
+            promptArea.style.flexDirection = 'column';
+            promptArea.style.alignItems = 'center';
+            promptArea.style.justifyContent = 'center';
+            promptArea.style.padding = '20px';
+            promptArea.style.boxSizing = 'border-box';
 
-            // Create close button.
-            const closeBtn = document.createElement('button');
-            closeBtn.innerText = 'X';
+            // Style Prompt Inputs.
+            const textarea = document.getElementById('game-desc');
+            textarea.style.width = '100%';
+            textarea.style.maxWidth = '600px';
+            textarea.style.height = '120px';
+            textarea.style.marginBottom = '15px';
+            textarea.style.background = '#1e1e1e';
+            textarea.style.color = '#fff';
+            textarea.style.padding = '10px';
 
-            // Apply JS styling to button.
-            closeBtn.style.background = 'transparent';
-            closeBtn.style.border = 'none';
-            closeBtn.style.color = '#ff4444';
-            closeBtn.style.cursor = 'pointer';
-            closeBtn.style.fontWeight = 'bold';
-            closeBtn.style.padding = '0';
+            createBtn.style.padding = '10px 20px';
+            createBtn.style.background = 'linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%)';
+            createBtn.style.color = '#fff';
+            createBtn.style.border = 'none';
+            createBtn.style.cursor = 'pointer';
 
-            // Handle close button click.
-            closeBtn.addEventListener('click', () => {
-                console.log("UI Event: Controls banner closed.");
-                banner.style.display = 'none';
-            });
+            // Style Game Area.
+            gameArea.style.margin = '16px';
+            gameArea.style.padding = '16px';
+            gameArea.style.boxSizing = 'border-box';
+            gameArea.style.display = 'flex';
+            gameArea.style.justifyContent = 'center';
+            gameArea.style.alignItems = 'center';
 
-            // Append elements to DOM.
-            banner.appendChild(text);
-            banner.appendChild(closeBtn);
-            document.getElementById('game-container').appendChild(banner);
-            console.log("DOM Event: Controls banner attached.");
+            // Fixed 800x450 Canvas Rule.
+            iframe.style.width = '800px';
+            iframe.style.height = '450px';
+            iframe.style.maxWidth = '100%';
+            iframe.style.maxHeight = '100%';
+
+            updateViewState();
         }
 
-        // Handle loading locally saved game.
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log("LifeCycle Event: DOM Content Loaded.");
-            const savedGame = localStorage.getItem('alien_cargo_last_game');
-            const savedDesc = localStorage.getItem('alien_cargo_last_desc');
+        // Handle view switching.
+        function updateViewState() {
+            console.log(`UI Event: View state -> Game:${isGameView}`);
+            if (isGameView) {
+                // Game mode explicitly on row 1.
+                toggleBtn.style.gridColumn = '1 / 2';
+                toggleBtn.style.gridRow = '1';
+                toggleBtn.innerHTML = '&gt;';
 
-            if (savedDesc) {
-                console.log("Storage Event: Restoring game description.");
-                document.getElementById('game-desc').value = savedDesc;
-            }
-            if (savedGame) {
-                console.log("Storage Event: Loading saved game HTML.");
-                const iframe = document.getElementById('game-frame');
-                iframe.srcdoc = savedGame;
-            }
+                promptArea.style.display = 'none';
 
-            // Initialize the controls banner.
-            createControlsBanner();
+                gameArea.style.display = 'flex';
+                gameArea.style.gridColumn = '2 / 33';
+                gameArea.style.gridRow = '1';
+            } else {
+                // Prompt mode explicitly on row 1.
+                toggleBtn.style.gridColumn = '32 / 33';
+                toggleBtn.style.gridRow = '1';
+                toggleBtn.innerHTML = '&lt;';
+
+                promptArea.style.display = 'flex';
+                promptArea.style.gridColumn = '1 / 32';
+                promptArea.style.gridRow = '1';
+
+                gameArea.style.display = 'none';
+            }
+        }
+
+        // Toggle button click logic.
+        toggleBtn.addEventListener('click', () => {
+            console.log("UI Event: Toggle button clicked.");
+            isGameView = !isGameView;
+            updateViewState();
         });
 
-        // Handle textarea input logging.
+        // Initialize layout constraints.
+        applyLayout();
+
+        // Handle text changes.
         document.getElementById('game-desc').addEventListener('input', () => {
              console.log("UI Event: Textarea input modified.");
         });
 
-        // Handle button click logic.
-        document.getElementById('create-btn').addEventListener('click', async () => {
-            console.log("UI Event: 'Create Game' button clicked.");
+        // Handle generation request.
+        createBtn.addEventListener('click', async () => {
+            console.log("UI Event: Create button clicked.");
             const descInput = document.getElementById('game-desc').value.trim();
-            console.log(`Data Event: Input length: ${descInput.length}`);
+            console.log(`Data Event: Input len: ${descInput.length}`);
 
             if (!descInput) {
-                console.warn("Validation Event: Empty description blocked.");
-                alert("Please describe your game first!");
+                console.warn("Validation: Empty description blocked.");
+                alert("Please describe your game!");
                 return;
             }
 
-            const btn = document.getElementById('create-btn');
             const loading = document.getElementById('loading');
-            const iframe = document.getElementById('game-frame');
 
-            // Set up progress bar UI.
+            // UI Loading state.
+            console.log("UI State: Enabling loading overlay.");
+            createBtn.disabled = true;
+            createBtn.innerText = "Generating...";
+            loading.style.display = 'block';
+            iframe.srcdoc = "";
+
+            // Dynamic Progress Bar.
             let progressContainer = document.getElementById('progress-container');
             if (!progressContainer) {
-                console.log("UI Event: Building JS progress bar.");
+                console.log("UI Event: Building progress bar.");
                 progressContainer = document.createElement('div');
                 progressContainer.id = 'progress-container';
-                progressContainer.style.width = '80%';
-                progressContainer.style.height = '15px';
-                progressContainer.style.border = '2px solid #00d2ff';
-                progressContainer.style.borderRadius = '8px';
-                progressContainer.style.overflow = 'hidden';
+                progressContainer.style.width = '100%';
+                progressContainer.style.height = '10px';
+                progressContainer.style.background = '#333';
+                progressContainer.style.marginTop = '10px';
 
                 const bar = document.createElement('div');
                 bar.id = 'progress-bar';
                 bar.style.width = '0%';
                 bar.style.height = '100%';
-                bar.style.backgroundColor = '#00d2ff';
+                bar.style.background = '#00d2ff';
                 bar.style.transition = 'width 0.2s linear';
 
                 progressContainer.appendChild(bar);
-                loading.insertBefore(progressContainer, document.getElementById('loading-text'));
+                loading.appendChild(progressContainer);
             }
 
             const progressBar = document.getElementById('progress-bar');
             progressBar.style.width = '0%';
 
-            // Update UI state to loading.
-            console.log("UI State: Disabling button, showing loader.");
-            btn.disabled = true;
-            btn.innerText = "Generating...";
-            loading.style.display = 'flex';
-
-            // Clear previous game iframe.
-            console.log("UI State: Cleared previous iframe source.");
-            iframe.srcdoc = "";
-
-            // Start fake progress history.
             let avgTime = parseInt(localStorage.getItem('alien_cargo_avg_time')) || 15000;
             let startTime = Date.now();
-            console.log(`UI Event: Starting progress bar. Avg: ${avgTime}ms`);
+            console.log(`UI Event: Start progress. Avg: ${avgTime}ms`);
 
             let progressInterval = setInterval(() => {
                 let elapsed = Date.now() - startTime;
@@ -337,9 +214,9 @@
                 progressBar.style.width = `${progress}%`;
             }, 200);
 
-            // Prepare request payload.
+            // POST Payload.
             const payload = { description: descInput };
-            console.log("Network Event: POST request initiated.", FLASK_API_URL);
+            console.log("Network Event: POST initiated.");
 
             try {
                 const response = await fetch(FLASK_API_URL, {
@@ -348,60 +225,45 @@
                     body: JSON.stringify(payload)
                 });
 
-                console.log(`Network Event: Response status: ${response.status}`);
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
+                console.log(`Network Event: Status ${response.status}`);
+                if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
 
                 const data = await response.json();
-                console.log("Data Event: JSON payload parsed.");
+                console.log("Data Event: Payload parsed.");
+                if (data.error) throw new Error(data.error);
 
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-
-                // Finish progress animation.
+                // Stop progress.
                 clearInterval(progressInterval);
                 progressBar.style.width = '100%';
-                console.log("UI Event: Progress bar completed.");
+                console.log("UI Event: Progress completed.");
 
-                // Update running average.
                 if (data.duration_ms) {
                     let newAvg = (avgTime + data.duration_ms) / 2;
                     localStorage.setItem('alien_cargo_avg_time', newAvg.toString());
-                    console.log(`Storage Event: Updated average time to ${newAvg}ms.`);
+                    console.log(`Storage: Avg updated to ${newAvg}ms.`);
                 }
 
-                // Inject generated game.
-                console.log("UI State: Injecting HTML into iframe.");
+                // Load Game.
+                console.log("UI State: Injecting game HTML.");
                 iframe.srcdoc = data.game_html;
 
-                // Save state to local storage.
-                localStorage.setItem('alien_cargo_last_game', data.game_html);
-                localStorage.setItem('alien_cargo_last_desc', descInput);
-                console.log("Storage Event: Saved game state locally.");
+                // Auto switch view.
+                isGameView = true;
+                updateViewState();
 
             } catch (error) {
-                console.error("Error Event: API communication failed.", error);
+                console.error("Error Event: API failed.", error);
                 clearInterval(progressInterval);
-                alert("Failed to generate game. Check console for details.");
-
+                alert("Generation failed. See console.");
             } finally {
-                // Restore UI ready state.
-                console.log("UI State: Restoring interface layout.");
+                // Restore UI.
+                console.log("UI State: Restoring interface.");
                 setTimeout(() => {
-                    btn.disabled = false;
-                    btn.innerText = "Create Game";
+                    createBtn.disabled = false;
+                    createBtn.innerText = "Create Game";
                     loading.style.display = 'none';
                     progressBar.style.width = '0%';
-                }, 500); // Visual transition delay.
-
-                // Ensure banner is visible again.
-                const banner = document.getElementById('controls-banner');
-                if (banner && banner.style.display === 'none') {
-                    console.log("UI Event: Resetting banner visibility.");
-                    banner.style.display = 'flex';
-                }
+                }, 500);
             }
         });
     </script>
