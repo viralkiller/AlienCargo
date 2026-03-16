@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Alien Cargo</title>
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+        }
+        nav {
+            display: flex;
+            justify-content: space-between;
+            background: #1e1e1e;
+            padding: 15px 20px;
+            align-items: center;
+            border-bottom: 1px solid #333;
+            height: 30px;
+        }
+        nav a {
+            color: #00d2ff;
+            text-decoration: none;
+            margin-right: 15px;
+            font-weight: bold;
+        }
+        nav a:hover { color: #fff; }
+        .nav-right { display: flex; align-items: center; }
+        .cost-text {
+            color: #aaa;
+            font-size: 12px;
+            margin-right: 15px;
+            font-weight: bold;
+        }
+        .credits-badge {
+            background: #3a7bd5;
+            padding: 5px 10px;
+            border-radius: 5px;
+            margin-right: 15px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        .flash-messages {
+            position: absolute;
+            top: 70px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 1000;
+            pointer-events: none;
+        }
+        .flash {
+            padding: 10px 20px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            pointer-events: auto;
+            max-width: 600px;
+            text-align: center;
+        }
+        .flash.success { background: rgba(0, 255, 0, 0.2); border: 1px solid #0f0; }
+        .flash.danger, .flash.error { background: rgba(255, 0, 0, 0.2); border: 1px solid #f00; }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav>
+        <div class="nav-left">
+            <a href="{{ url_for('index') }}">Alien Cargo 🛸</a>
+            <a href="{{ url_for('billing.tiers') }}">Store</a>
+        </div>
+        <div class="nav-right">
+            <span class="cost-text">1 credit per game gen</span>
+
+            {% if session.get('token') %}
+                <div class="credits-badge">Credits: <span id="nav-credits">{{ session.get('credits_remaining', 0) }}</span></div>
+                <a href="{{ url_for('auth.logout') }}">Logout</a>
+            {% else %}
+                <a href="{{ url_for('auth.login') }}">Login</a>
+                <a href="{{ url_for('auth.register') }}">Register</a>
+            {% endif %}
+        </div>
+    </nav>
+    <div class="flash-messages">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+    </div>
+    {% block content %}{% endblock %}
+</body>
+</html>

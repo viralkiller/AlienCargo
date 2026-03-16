@@ -1,0 +1,16 @@
+{
+  "system_instruction": "Output ONLY ONE matching category name. No extra words.",
+  "categories": [
+    "Platform Game",
+    "Racing game",
+    "R-type style space shooter",
+    "1v1 beat em up like street fighter",
+    "Final Fight style beat em up",
+    "Starfox style 3d shooter",
+    "Doom style fake 3d shooter",
+    "Chrono Trigger style RPG Game",
+    "Silent Hill style game",
+    "Other"
+  ],
+  "prompt_template": "Categories:\n{categories}\n\nMatch this description: {description}"
+}

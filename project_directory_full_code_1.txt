@@ -1,4 +1,4 @@
-Aggregated on: 2026-03-15 08:00:38
+Aggregated on: 2026-03-16 05:18:17
 ================================================================================
 Project Directory Tree:
 /
@@ -8,6 +8,18 @@ Project Directory Tree:
 │   ├── images
 │   ├── js
 │   ├── json
+│   │   ├── determine_game_type.json
+│   │   ├── fighting_finalfight.json
+│   │   ├── fighting_streetfighter.json
+│   │   ├── general_game_instructions.json
+│   │   ├── horror_silenthill.json
+│   │   ├── other.json
+│   │   ├── platformer.json
+│   │   ├── racing.json
+│   │   ├── rpg_chrono.json
+│   │   ├── shooter_doom.json
+│   │   ├── shooter_rtype.json
+│   │   └── shooter_starfox.json
 │   └── png
 │       └── common_assets
 │           ├── ferrari_behind_view
@@ -15,22 +27,31 @@ Project Directory Tree:
 │               ├── ship_behind_view_thrust_off.png
 │               └── ship_behind_view_thrusting.png
 ├── templates
-│   └── index.html
+│   ├── base.html
+│   ├── index.html
+│   └── tiers.html
 ├── .bashrc
 ├── .gitconfig
 ├── .gitignore
 ├── .profile
 ├── .pythonstartup.py
 ├── .vimrc
+├── _AESCipher.py
+├── _Auth.py
+├── _Billing_Routes.py
+├── _Purchase_Manager.py
 ├── _Review_Functions.py
+├── _Shared.py
+├── _Utils.py
 ├── flask_app.py
-├── general.md
+├── game_requirements.md
+├── generation_times.json
 ├── progress_bar.md
 ├── progress_tracker.py
 ├── project_directory_full_code_1.txt
 └── README.txt
 
-10 directories, 17 files
+10 directories, 38 files
 ================================================================================
 
 [-] This file: .pythonstartup.py | Contents:
@@ -40,22 +61,897 @@ import readline
 readline.parse_and_bind("tab: complete")
 ================================================================================
 
+[-] This file: _AESCipher.py | Contents:
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+import base64
+import hashlib
+import json
+from datetime import datetime, timedelta
+class AESCipher:
+    def __init__(self, key):
+        # Hashes the key to ensure it is 256 bits long
+        self.key = hashlib.sha256(key.encode()).digest()
+    def encrypt(self, text):
+        """Encrypts a given text (without timestamp)"""
+        iv = get_random_bytes(AES.block_size)
+        cipher = AES.new(self.key, AES.MODE_CBC, iv)
+        ct_bytes = cipher.encrypt(pad(text.encode(), AES.block_size))
+        encrypted_data = base64.b64encode(iv + ct_bytes).decode('utf-8')
+        # Replace '/' with '_' to make the output URL-safe
+        encrypted_data = encrypted_data.replace('/', '_').replace('+', '-')
+        return encrypted_data
+    def decrypt(self, encrypted_data):
+        """Decrypts the given encrypted text"""
+        encrypted_data = encrypted_data.replace('_', '/').replace('-', '+')
+        data = base64.b64decode(encrypted_data)
+        iv, ct = data[:AES.block_size], data[AES.block_size:]
+        cipher = AES.new(self.key, AES.MODE_CBC, iv)
+        pt = unpad(cipher.decrypt(ct), AES.block_size)
+        return pt.decode('utf-8')
+    def encrypt_with_timecheck(self, text, expiry_minutes=5):
+        """Encrypts the given text along with the current timestamp."""
+        timestamp = datetime.utcnow().isoformat()  # Use UTC time
+        payload = {'status': text, 'timestamp': timestamp}
+        payload_str = json.dumps(payload)
+        return self.encrypt(payload_str)
+    def decrypt_with_timecheck(self, encrypted_data, expiry_minutes=5):
+        """Decrypts the data and checks if the timestamp is still valid."""
+        decrypted_data = self.decrypt(encrypted_data)
+        try:
+            payload = json.loads(decrypted_data)
+        except json.JSONDecodeError:
+            raise ValueError("Invalid data format after decryption.")
+        status = payload.get('status')
+        timestamp = payload.get('timestamp')
+        if not status or not timestamp:
+            raise ValueError("Missing status or timestamp in the decrypted data.")
+        timestamp_dt = datetime.fromisoformat(timestamp)  # Ensure it’s parsed correctly in UTC
+        # Ensure both the timestamp and current time are in UTC
+        if datetime.utcnow() - timestamp_dt > timedelta(minutes=expiry_minutes):
+            raise ValueError("Token has expired.")
+        return status
+if __name__ == "__main__":
+    secret_key = 'test_key'
+    a = AESCipher(secret_key)
+    # Encrypt and decrypt a simple status without timestamp validation
+    enc = a.encrypt('SUCCESS')
+    print(f"Encrypted: {enc}")
+    dec = a.decrypt(enc)
+    print(f"Decrypted: {dec}")
+    # Encrypt with timestamp and validate expiry
+    enc_with_timecheck = a.encrypt_with_timecheck('SUCCESS')
+    print(f"Encrypted with timecheck: {enc_with_timecheck}")
+    # Decrypt with timecheck and validate timestamp
+    try:
+        dec_with_timecheck = a.decrypt_with_timecheck(enc_with_timecheck)
+        print(f"Decrypted with timecheck: {dec_with_timecheck}")
+    except ValueError as e:
+        print(f"Error: {e}")
+================================================================================
+
+[-] This file: _Auth.py | Contents:
+# _Auth.py
+import os
+import re
+import jwt  # Decode securely.
+import time # Required for timestamps.
+from flask import (
+    Blueprint, render_template, request, redirect,
+    url_for, flash, session, current_app, make_response, jsonify
+)
+import requests
+from _Shared import LOGINMANAGER_MICROSERVICE_URL
+from flask_wtf import FlaskForm
+from wtforms import StringField, PasswordField, SubmitField
+from wtforms.validators import DataRequired, ValidationError
+class SimpleEmail:
+    """Basic email validator."""
+    def __init__(self, message=None):
+        if not message:
+            message = 'Invalid email address.'
+        self.message = message
+        self.regex = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+    def __call__(self, form, field):
+        email = field.data or ""
+        if not self.regex.match(email):
+            raise ValidationError(self.message)
+class RegistrationForm(FlaskForm):
+    """Registration form."""
+    email = StringField('Email', validators=[DataRequired(), SimpleEmail()])
+    username = StringField('Username', validators=[DataRequired()])
+    password = PasswordField('Password', validators=[DataRequired()])
+    submit = SubmitField('Register')
+class LoginForm(FlaskForm):
+    """Login form."""
+    email = StringField('Email', validators=[DataRequired(), SimpleEmail()])
+    password = PasswordField('Password', validators=[DataRequired()])
+    submit = SubmitField('Sign In')
+auth_bp = Blueprint('auth', __name__)
+@auth_bp.before_app_request
+def check_global_token_expiry():
+    """Purge expired session."""
+    token = session.get('token')
+    if token:
+        try:
+            # Decode securely.
+            payload = jwt.decode(token, options={"verify_signature": False})
+            exp = payload.get('exp')
+            if exp and time.time() > exp:
+                current_app.logger.info("[Auth] Token expired globally. Purging.")
+                session.clear()
+        except Exception:
+            current_app.logger.warning("[Auth] Invalid token. Purging.")
+            session.clear()
+@auth_bp.route('/heartbeat', methods=['GET'])
+def heartbeat():
+    """Session validation endpoint."""
+    token = session.get('token')
+    if not token or not session.get('email'):
+        session.clear() # Fix infinite loop.
+        return jsonify({"status": "expired"}), 401
+    try:
+        # Decode securely.
+        payload = jwt.decode(token, options={"verify_signature": False})
+        exp = payload.get('exp')
+        if exp and time.time() > exp:
+            current_app.logger.info("[Auth] Token expired. Clearing session.")
+            session.clear()
+            response = jsonify({"status": "expired"})
+            status_code = 401
+        else:
+            response = jsonify({"status": "active", "user": session.get('username')})
+            status_code = 200
+    except jwt.DecodeError:
+        current_app.logger.warning("[Auth] Invalid token format. Clearing.")
+        session.clear()
+        response = jsonify({"status": "invalid"})
+        status_code = 401
+    except Exception as e:
+        current_app.logger.error(f"[Auth] Error checking token: {e}")
+        response = jsonify({"status": "active", "user": session.get('username')})
+        status_code = 200
+    # Prevent caching.
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response, status_code
+@auth_bp.route('/register', methods=['GET', 'POST'])
+def register():
+    """Redirect to registration."""
+    current_domain = request.host.split(':')[0]
+    maintenance_mode = os.getenv("MAINTENANCE_MODE", "False").lower() in ("true", "1", "yes")
+    if maintenance_mode:
+        current_app.logger.info("[Auth] Maintenance mode active.")
+        return render_template("maintenance.html")
+    redirect_uri = url_for('auth.handle_register', _external=True)
+    lm_url = f"{LOGINMANAGER_MICROSERVICE_URL}/register-page"
+    register_url = f"{lm_url}?redirect_uri={redirect_uri}&domain={current_domain}"
+    current_app.logger.info(f"[Auth] Redirecting to: {register_url}")
+    return redirect(register_url)
+@auth_bp.route('/login', methods=['GET', 'POST'])
+def login():
+    """Redirect to login."""
+    current_domain = request.host.split(':')[0]
+    redirect_uri = url_for('auth.handle_login', _external=True)
+    lm_login_url = (
+        f"{LOGINMANAGER_MICROSERVICE_URL}/login-page"
+        f"?redirect_uri={redirect_uri}&domain={current_domain}"
+    )
+    current_app.logger.info(f"[Auth] Redirecting to: {lm_login_url}")
+    return redirect(lm_login_url)
+@auth_bp.route('/handle_login', methods=['GET'])
+def handle_login():
+    """Auth callback."""
+    token = request.args.get('token')
+    if not token:
+        flash("Authentication failed: No token received.", "danger")
+        return redirect(url_for('index'))
+    try:
+        # Verify token.
+        resp = requests.get(
+            f"{LOGINMANAGER_MICROSERVICE_URL}/protected",
+            headers={"Authorization": token},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            flash("Authentication failed: Invalid or expired token.", "danger")
+            return redirect(url_for('index'))
+        user_data = resp.json()
+        username = user_data.get("username")
+        if not username:
+            flash("Failed to retrieve user data.", "danger")
+            return redirect(url_for('index'))
+        # Fetch actual credits.
+        credits_rem = user_data.get("credits_remaining", 0)
+        try:
+            payload = {
+                "domain": request.host.split(":")[0],
+                "email": user_data.get("email"),
+                "fingerprint": session.get("fingerprint", "backend_auth")
+            }
+            c_resp = requests.post(
+                f"{LOGINMANAGER_MICROSERVICE_URL}/get_credits",
+                json=payload,
+                timeout=5
+            )
+            if c_resp.status_code == 200:
+                credits_rem = c_resp.json().get("credits_remaining", credits_rem)
+        except Exception as e:
+            current_app.logger.error(f"[Auth] Credit fetch failed: {e}")
+        # Update session.
+        session.update(
+            token=token,
+            user_id=username,
+            username=username,
+            email=user_data.get("email"),
+            last_login=user_data.get("last_login"),
+            domain=request.host.split(":")[0],
+            credits_remaining=credits_rem,
+            free_credits=user_data.get("free_credits", 0),
+            purchased_credits=user_data.get("purchased_credits", 0),
+        )
+        session.permanent = True
+        flash("Login successful!", "success")
+        return redirect(url_for('index'))
+    except requests.RequestException as e:
+        current_app.logger.exception(f"[Auth] Verification failed: {e}")
+        flash("Could not verify login. Please try again.", "danger")
+        return redirect(url_for('index'))
+@auth_bp.route('/handle_register', methods=['GET'])
+def handle_register():
+    """Registration callback."""
+    success = request.args.get("success", "false").lower() == "true"
+    message = request.args.get("message", "")
+    if success:
+        flash(message or "Registration successful! Check email.", "success")
+        return redirect(url_for('auth.login'))
+    else:
+        flash(message or "Registration failed.", "danger")
+        return redirect(url_for('auth.login'))
+@auth_bp.route('/logout')
+def logout():
+    """Logout and clear."""
+    keys_to_clear = [
+        "token", "user_id", "username", "email",
+        "last_login", "credits_remaining",
+        "free_credits", "purchased_credits",
+        "current_sid", "fingerprint", "extras",
+        "pending_transactions"
+    ]
+    for key in keys_to_clear:
+        session.pop(key, None)
+    flash("You have been successfully logged out.", "success")
+    resp = make_response(redirect(url_for('index')))
+    resp.delete_cookie("progress_done", path="/")
+    return resp
+================================================================================
+
+[-] This file: _Billing_Routes.py | Contents:
+#_Billing_Routes.py
+from flask import (
+    Blueprint, request, jsonify, session, current_app, render_template,
+    flash, redirect, url_for
+)
+import os
+import time
+import requests
+import uuid
+import math
+from collections import OrderedDict
+from urllib.parse import quote
+# Helpers
+from _Utils import (
+    get_Subdomain, get_user_ip_and_location, TimeFunctions, detect_Device
+)
+# Payment-specific modules
+from _Purchase_Manager import Purchase_Manager
+from _AESCipher import AESCipher
+# -----------------------------------------------------------------------------
+# External service endpoints
+# -----------------------------------------------------------------------------
+LOGINMANAGER_MICROSERVICE_URL = "[https://loginmanager.pythonanywhere.com](https://loginmanager.pythonanywhere.com)"
+# -----------------------------------------------------------------------------
+# Blueprint
+# -----------------------------------------------------------------------------
+billing_bp = Blueprint("billing", __name__)
+# -----------------------------------------------------------------------------
+# Fingerprint proxy endpoint (recommended frontend target)
+@billing_bp.route("/report_standard", methods=["POST"])
+def report_standard():
+    """
+    Receives fingerprint + metadata from frontend and forwards to LoginManager.
+    DEBUG VERSION: Returns specific exception details to the browser.
+    """
+    try:
+        # 1. Parse Request Data
+        data = request.get_json(force=True)
+        if not data:
+            return jsonify(error="No JSON data received"), 400
+        fingerprint = data.get("fingerprint")
+        email = (data.get("email") or "").strip()
+        domain = get_Subdomain()
+        email_verified = data.get("email_verified", "NA") if email else "NA"
+        created_at = data.get("created_at", time.time())
+        # 2. Prepare Extras
+        # Handle cases where 'extras' might be None or missing
+        raw_extras = data.get("extras")
+        if not isinstance(raw_extras, dict):
+            raw_extras = {}
+        extras = OrderedDict(
+            sorted(
+                {
+                    "gpu": raw_extras.get("gpu", ""),
+                    "canvasHash": raw_extras.get("canvasHash", ""),
+                    "browser": raw_extras.get("browser", ""),
+                    "timezone": raw_extras.get("timezone", ""),
+                    "location": raw_extras.get("location", ""),
+                    "ip": raw_extras.get("ip", ""),
+                }.items()
+            )
+        )
+        # 3. Server-side IP/Location lookup
+        try:
+            ip, loc = get_user_ip_and_location()
+            extras["ip"], extras["location"] = ip, loc
+        except Exception as e:
+            current_app.logger.error(f"IP Lookup failed: {e}")
+            extras["ip"], extras["location"] = "0.0.0.0", "Lookup Failed"
+        # 4. Update Session
+        if fingerprint:
+            session["fingerprint"] = fingerprint
+        if email:
+            session["email"] = email
+        session["extras"] = extras
+        # 5. Send to Microservice
+        payload = {
+            "fingerprint": fingerprint,
+            "email": email,
+            "email_verified": email_verified,
+            "created_at": created_at,
+            "domain": domain,
+            "extras": extras,
+        }
+        # Debug print to server log
+        print(f"[report_standard] Sending payload to {LOGINMANAGER_MICROSERVICE_URL}...")
+        r = requests.post(
+            f"{LOGINMANAGER_MICROSERVICE_URL}/gather_fingerprint_data",
+            json=payload,
+            timeout=10,
+        )
+        r.raise_for_status()
+        return jsonify(remote_response=r.json()), 200
+    except requests.exceptions.RequestException as re:
+        # Specific error for connection issues
+        current_app.logger.error(f"External Connection Error: {re}")
+        return jsonify(error=f"Connection to LoginManager failed: {str(re)}"), 502
+    except Exception as exc:
+        # Catch-all for code errors (e.g. imports, variable names)
+        current_app.logger.exception("report_standard crashed")
+        # RETURN THE ACTUAL ERROR TO THE BROWSER
+        return jsonify(error=f"Server Error: {str(exc)}"), 500
+# -----------------------------------------------------------------------------
+# Credit usage reporting
+# -----------------------------------------------------------------------------
+@billing_bp.route("/report_credit_usage", methods=["POST"])
+def report_credit_usage():
+    """
+    Endpoint to log credit usage reports from the frontend.
+    Fixes the 404 error seen in the client console.
+    """
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        amount = data.get('amount', 0)
+        user_id = session.get("email") or "Unknown"
+        # Log the report so we know the frontend is working
+        current_app.logger.info(f"--- [BILLING] Credit Usage Reported (Frontend) ---")
+        current_app.logger.info(f"User: {user_id} | Amount: {amount}")
+        # Since deduction is handled via Match/Server-logic, we just return success
+        # to the frontend so it doesn't throw errors.
+        return jsonify({"status": "success", "message": "Usage logged"}), 200
+    except Exception as e:
+        current_app.logger.error(f"!!! [BILLING ERROR] Failed to report usage: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+# -----------------------------------------------------------------------------
+# Credit lookup
+# -----------------------------------------------------------------------------
+@billing_bp.route("/get_credits", methods=["POST"])
+def get_credits():
+    """
+    Retrieves credit balance.
+    Security Patch: Prioritizes session identity over client-submitted data to prevent griefing.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    # SECURITY: Use session fingerprint if available (trusted), otherwise fallback to data (untrusted)
+    # This prevents User A from querying User B's balance just by guessing their fingerprint.
+    fingerprint = session.get("fingerprint") or data.get("fingerprint")
+    email = session.get("email") or data.get("email", "")
+    if not fingerprint:
+        return jsonify(error="Missing fingerprint"), 400
+    # Refresh session fingerprint if we found it in the request
+    if not session.get("fingerprint"):
+        session["fingerprint"] = fingerprint
+    payload = {"domain": get_Subdomain(), "fingerprint": fingerprint, "email": email}
+    try:
+        r = requests.post(
+            f"{LOGINMANAGER_MICROSERVICE_URL}/get_credits", json=payload, timeout=5
+        )
+        r.raise_for_status()
+        credits = r.json().get("credits_remaining", 0)
+        # FIX: Ensure credits are returned as an integer (floor value)
+        return jsonify(credits_remaining=int(float(credits))), 200
+    except Exception as exc:
+        current_app.logger.error("get_credits failed: %s", exc)
+        return jsonify(error="Unable to fetch credits"), 502
+# -----------------------------------------------------------------------------
+# Pricing / tiers
+# -----------------------------------------------------------------------------
+def handle_standard_payment(tid, price, email):
+    subdomain = get_Subdomain()
+    encoded_email = quote(email, safe="")
+    return f"[https://stripegateway.pythonanywhere.com/process/](https://stripegateway.pythonanywhere.com/process/){subdomain}/{tid}/{price}/{encoded_email}"
+def handle_eth_payment(tid, price, email):
+    subdomain = get_Subdomain()
+    encoded_email = quote(email, safe="")
+    return f"[https://cryptgateway.pythonanywhere.com/process/](https://cryptgateway.pythonanywhere.com/process/){subdomain}/{tid}/{price}/{encoded_email}"
+def clean_stale_transactions(pending_txs, timeout_seconds=1800):
+    """
+    [PATCH] Helper to remove transactions older than 30 mins.
+    Prevents session cookie overflow (DoS).
+    """
+    if not pending_txs:
+        return pending_txs
+    now = time.time()
+    # Create a list of keys to remove to avoid runtime dictionary size change errors
+    to_remove = [k for k, v in pending_txs.items() if now - v.get("created_at", 0) > timeout_seconds]
+    for k in to_remove:
+        # Safely remove from the dictionary
+        del pending_txs[k]
+    if to_remove:
+        current_app.logger.info(f"[Billing] Garbage Collection: Removed {len(to_remove)} stale transactions.")
+    return pending_txs
+@billing_bp.route("/tiers", methods=["GET", "POST"])
+def tiers():
+    # [FIX] Do NOT force lower case. Preserve casing to match Identity DB.
+    email = session.get("email", "").strip()
+    device = detect_Device(request.headers.get("User-Agent"))
+    # Credit amounts & displayed prices
+    sa, ma, la = 10, 50, 100
+    sp, mp, lp = "2.00", "5.00", "9.00"
+    if request.method == "POST":
+        # [CRITICAL FIX] Strict session check before processing purchase
+        if not email:
+            current_app.logger.warning("[Billing] Blocked purchase attempt with expired session/empty email.")
+            flash("Your session has expired. Please log in again to purchase credits.", "danger")
+            return redirect(url_for('auth.login'))
+        pm = request.form.get("payment_method")
+        pk = request.form["package"]
+        # [FIX] Cast float to int to prevent fractional credit bugs.
+        cr = int(float(request.form["credits"]))
+        pr = request.form["price"]
+        tid = str(uuid.uuid4())
+        # SECURITY PATCH: Store specific transaction details in session dict
+        # instead of a single 'purchased_credits' variable.
+        # This prevents the "Tab Switching" exploit.
+        pending_txs = session.get("pending_transactions", {})
+        # [PATCH A] Run Garbage Collection before adding new data
+        pending_txs = clean_stale_transactions(pending_txs)
+        pending_txs[tid] = {
+            "credits": cr,
+            "price": pr, # [FIX] Persist the price so we can record accurate financials later
+            "payment_method": pm,
+            "created_at": time.time()
+        }
+        session["pending_transactions"] = pending_txs
+        current_app.logger.info(f"Initiating transaction {tid} for {cr} credits via {pm}")
+        if pm == "standard":
+            payment_url = handle_standard_payment(tid, pr, email)
+        elif pm == "eth":
+            payment_url = handle_eth_payment(tid, pr, email)
+        else:
+            flash("Invalid payment method selected.")
+            return redirect(url_for("billing.tiers"))
+        if email in [
+            "jules3313@gmail.com",
+            "tmnt2017@gmail.com",
+            "secrino7@yahoo.com",
+        ]:
+            payment_url += "&test_mode=true" if "?" in payment_url else "?test_mode=true"
+        return redirect(payment_url)
+    return render_template(
+        "tiers.html",
+        device=device,
+        email=email,
+        small_package_amount=sa,
+        mid_package_amount=ma,
+        large_package_amount=la,
+        small_package_price=sp,
+        mid_package_price=mp,
+        large_package_price=lp,
+    )
+# -----------------------------------------------------------------------------
+# Finalization after payment (Stripe/ETH gateways redirect here)
+# -----------------------------------------------------------------------------
+@billing_bp.route("/final/<transaction_id>/<status>", methods=["GET", "POST"])
+def final(transaction_id, status):
+    purchase_manager = Purchase_Manager()
+    email = session.get("email")
+    domain = get_Subdomain()
+    try:
+        shop_key = current_app.config["SHOP_KEY"]
+        cipher = AESCipher(shop_key)
+        decrypted_status = cipher.decrypt_with_timecheck(status)
+        current_app.logger.info("[final] Decrypted status: %s", decrypted_status)
+    except Exception as e:
+        current_app.logger.exception("[final] Failed to decrypt status token: %s", e)
+        return redirect(url_for("index"))
+    if not session.get("token"):
+        current_app.logger.warning("[final] User not authenticated. Aborting.")
+        # Optional: Redirect to login, but home is safer fallback
+        return redirect(url_for("index"))
+    try:
+        if decrypted_status == "COMPLETED":
+            # SECURITY PATCH: Retrieve details for THIS specific transaction ID
+            pending_txs = session.get("pending_transactions", {})
+            tx_data = pending_txs.get(transaction_id)
+            if not tx_data:
+                current_app.logger.error(f"[final] Transaction {transaction_id} not found in pending list. Possible replay or invalid ID.")
+                flash("Transaction details missing or expired. Please contact support.", "error")
+                return redirect(url_for("index"))
+            # Use the stored credit amount, NOT the last button clicked
+            purchased_credits = tx_data.get("credits")
+            amount_paid = tx_data.get("price") # [FIX] Retrieve actual price paid
+            payment_method = tx_data.get("payment_method", "Stripe")
+            username = session.get("username")
+            success, _ = purchase_manager.process_payment(
+                username=username,
+                transaction_id=transaction_id,
+                status=decrypted_status,
+                email=email,
+                domain=domain,
+                credits_bought=purchased_credits,
+                amount=amount_paid, # [FIX] Pass price to Purchase_Manager
+                method=payment_method,
+            )
+            if not success:
+                current_app.logger.error(
+                    "Credit update via LoginManager failed after successful payment."
+                )
+                flash(
+                    "Your payment was successful, but there was an issue adding credits. Please contact support.",
+                    "error",
+                )
+                return redirect(url_for("index"))
+            # SECURITY PATCH: Remove the transaction to prevent Replay Attacks
+            pending_txs.pop(transaction_id, None)
+            session["pending_transactions"] = pending_txs
+            flash("Purchase successful! Your credits have been added.", "success")
+        else:
+            current_app.logger.info(
+                "Payment status was '%s', not 'COMPLETED'. Redirecting to billing issue page.",
+                decrypted_status,
+            )
+            return render_template("billing_issue.html")
+    except Exception as e:
+        current_app.logger.exception(
+            "[final] Unexpected error during payment processing: %s", e
+        )
+        flash("An unexpected error occurred. Please contact support.", "error")
+        return redirect(url_for("index"))
+    return redirect(url_for("index"))
+================================================================================
+
+[-] This file: _Purchase_Manager.py | Contents:
+from datetime import datetime, timezone
+import os
+import requests
+from flask import session, current_app as app
+from urllib.parse import urlparse
+class Purchase_Manager:
+    """Handles payment callbacks and records purchases."""
+    def __init__(self) -> None:
+        app.logger.info("Initializing Purchase_Manager...")
+        # Keep base URL consistent.
+        self.login_manager_url = "https://loginmanager.pythonanywhere.com"
+        app.logger.info(f"LoginManager URL set to: {self.login_manager_url}")
+        # Load shared secret securely.
+        self.credit_query_secret = os.environ.get("CRED_SECRET", "UpdateCreds")
+        app.logger.warning("Loaded CRED_SECRET from environment.")
+    # --------------------------------------------------------------------- #
+    def process_payment(
+        self,
+        *,
+        username: str,
+        transaction_id: str,
+        status: str,
+        email: str,
+        domain: str,
+        credits_bought: float,
+        method: str = "Stripe",
+        currency: str = "usd",
+        amount: float | None = None,
+    ) -> tuple[bool, float]:
+        """Records successful transactions via POST request."""
+        app.logger.info(f"--- Initiating process_payment for user: {username} ---")
+        app.logger.info(
+            "Received params: transaction_id=%s, status=%s, credits_bought=%s, "
+            "method=%s, currency=%s, amount=%s",
+            transaction_id, status, credits_bought, method, currency, amount
+        )
+        # Proceed only on success.
+        if status.upper() != "COMPLETED":
+            app.logger.warning(
+                "Payment status is '%s' (not 'COMPLETED') for transaction %s. Aborting record.",
+                status, transaction_id
+            )
+            return False, 0.0
+        app.logger.info("Payment status is COMPLETED for transaction %s.", transaction_id)
+        # Normalize crypto payment method.
+        payment_method = method
+        if currency and currency.upper() == "ETH":
+            app.logger.info(
+                "Currency is ETH for transaction %s. Overriding payment method from '%s' to 'Crypto'.",
+                transaction_id, method
+            )
+            payment_method = "Crypto"
+        else:
+            app.logger.info(
+                "Using payment method '%s' for currency '%s'.",
+                payment_method, currency
+            )
+        # Use actual amount or fallback.
+        final_transaction_amount = amount
+        if final_transaction_amount is None:
+            app.logger.warning(
+                "Transaction %s: 'amount' was not provided. "
+                "Falling back to using 'credits_bought' (%s) for transaction_amount.",
+                transaction_id, credits_bought
+            )
+            final_transaction_amount = credits_bought
+        app.logger.debug(f"Final transaction amount resolved to: {final_transaction_amount}")
+        record_url = f"{self.login_manager_url}/record-transaction"
+        # Send secret via headers.
+        headers = {"X-Service-Secret": self.credit_query_secret}
+        payload = {
+            "username": username,
+            "email": email,
+            "user_fingerprint": session.get("fingerprint"),
+            "domain": (urlparse(domain).netloc or domain),
+            "transaction_id": transaction_id,
+            "transaction_type": "saas_credits",
+            "transaction_currency": currency,
+            "transaction_amount": float(final_transaction_amount),
+            "credits_purchased": float(credits_bought),
+            "payment_method": payment_method,
+            "details": f"Purchase of {credits_bought} credits via {payment_method}",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "extras": session.get("extras", {}),
+        }
+        app.logger.info("Constructed payload for LoginManager: %s", payload)
+        try:
+            app.logger.info(
+                "Sending POST request to %s for transaction %s...",
+                record_url, transaction_id
+            )
+            resp = requests.post(
+                record_url,
+                json=payload,
+                headers=headers,
+                timeout=10,
+            )
+            app.logger.info("Request sent. Received status code: %s", resp.status_code)
+        except requests.RequestException as exc:
+            app.logger.exception(
+                "HTTP request to LoginManager failed for transaction %s: %s",
+                transaction_id, exc
+            )
+            return False, 0.0
+        if resp.status_code == 200:
+            app.logger.info(
+                "[OK] Transaction '%s' recorded successfully for %s",
+                transaction_id, username
+            )
+            return True, credits_bought
+        app.logger.error(
+            "[ERROR] record-transaction failed for transaction %s. "
+            "Status: %s, Response: %s",
+            transaction_id, resp.status_code, resp.text[:300]
+        )
+        return False, 0.0
+================================================================================
+
+[-] This file: _Shared.py | Contents:
+# Variables for global scope.
+print("[INIT] _Shared.py module loaded successfully.")
+# Login microservice target.
+LOGINMANAGER_MICROSERVICE_URL = "https://loginmanager.pythonanywhere.com"
+print(f"[INIT] Auth target: {LOGINMANAGER_MICROSERVICE_URL}")
+================================================================================
+
+[-] This file: _Utils.py | Contents:
+# _Utils.py
+from flask import request, session, current_app
+from user_agents import parse
+import geocoder
+import time
+import os
+import uuid
+# --- Added Lock Functions ---
+STALE_LOCK_TIMEOUT = 20 # seconds
+def acquire_lock(lock_path, timeout=5):
+    """
+    Acquires a simple, cross-process file lock.
+    Includes a mechanism to detect and remove stale locks.
+    """
+    print(f"[LOCK] Attempting to acquire lock for '{lock_path}'...")
+    try:
+        if os.path.exists(lock_path):
+            lock_age = time.time() - os.path.getmtime(lock_path)
+            if lock_age > STALE_LOCK_TIMEOUT:
+                current_app.logger.warning(
+                    f"[LOCK] Found stale lock file '{lock_path}' (age: {lock_age:.2f}s). "
+                    f"Assuming previous process crashed. Removing lock."
+                )
+                release_lock(lock_path) # Attempt to release the stale lock
+    except OSError as e:
+        current_app.logger.error(f"[LOCK] Error checking stale lock file '{lock_path}': {e}")
+        # Proceed cautiously, might still be able to acquire if the check failed due to transient issue
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            # Attempt to create the lock file exclusively
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd) # Close the file descriptor immediately after creation
+            current_app.logger.debug(f"[LOCK] Lock acquired successfully for '{lock_path}'.")
+            return True
+        except FileExistsError:
+            # File already exists, wait a bit and try again
+            current_app.logger.debug(f"[LOCK] Lock file '{lock_path}' exists, waiting...")
+            time.sleep(0.1)
+        except OSError as e:
+            # Handle other potential OS errors during lock acquisition
+            current_app.logger.error(f"[LOCK] OSError while trying to acquire lock for '{lock_path}': {e}")
+            return False # Fail fast on unexpected OS errors
+    current_app.logger.error(f"[LOCK] Failed to acquire lock for '{lock_path}' after timeout ({timeout}s).")
+    return False
+def release_lock(lock_path):
+    """Releases the file lock."""
+    print(f"[LOCK] Attempting to release lock for '{lock_path}'...")
+    try:
+        os.remove(lock_path)
+        current_app.logger.debug(f"[LOCK] Lock released successfully for '{lock_path}'.")
+    except FileNotFoundError:
+        # If the file doesn't exist, the lock is already released or wasn't acquired.
+        current_app.logger.warning(f"[LOCK] Attempted to release lock '{lock_path}', but it was not found (already released or never acquired?).")
+        pass # It's okay if the lock file isn't there.
+    except OSError as e:
+        # Handle potential errors during file removal (e.g., permissions)
+        current_app.logger.error(f"[LOCK] Error releasing lock file '{lock_path}': {e}")
+# --- End Added Lock Functions ---
+def detect_Device(ua):
+    """Determines if the user agent is for a mobile device or PC."""
+    print(f"[detect_Device] Parsing User-Agent: {ua}")
+    parsed_ua = parse(ua)
+    is_mobile_device = parsed_ua.is_mobile or parsed_ua.is_tablet
+    device_type = 'Mobile' if is_mobile_device else 'PC'
+    print(f"[detect_Device] Result: is_mobile={parsed_ua.is_mobile}, is_tablet={parsed_ua.is_tablet} -> {device_type}")
+    return device_type
+class TimeFunctions:
+    """Utility class for time-related conversions."""
+    @staticmethod
+    def convert_unixtime(ts: int) -> str:
+        """Converts a Unix timestamp to a human-readable string."""
+        print(f"[TimeFunctions] Converting Unix time: {ts}")
+        return time.ctime(ts)
+def get_Subdomain() -> str:
+    """Extracts the subdomain from the request host."""
+    host = (request.host or "").split(':')[0]
+    print(f"[get_Subdomain] Extracted host: {host}")
+    subdomain = host.split('.')[0] if '.' in host else host
+    print(f"[get_Subdomain] Determined subdomain: {subdomain}")
+    return subdomain
+def get_user_ip_and_location() -> tuple[str, str]:
+    """Gets the user's IP address and approximate location."""
+    print("[get_user_ip_and_location] Attempting to determine IP and location.")
+    try:
+        # Prioritize X-Forwarded-For if behind a proxy
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            # Take the first IP in the list (client's IP)
+            ip = forwarded.split(",")[0].strip()
+            print(f"[get_user_ip_and_location] Found IP in X-Forwarded-For: {ip}")
+        else:
+            # Fallback to remote_addr
+            ip = request.remote_addr or ""
+            print(f"[get_user_ip_and_location] Using remote_addr: {ip}")
+        # Use a public IP for local testing if needed
+        if ip == "127.0.0.1":
+            ip = "8.8.8.8" # Google's public DNS IP for testing purposes
+            print(f"[get_user_ip_and_location] Local IP detected, using fallback test IP: {ip}")
+        if not ip:
+            print("[get_user_ip_and_location] No IP address found.")
+            return "0.0.0.0", "Unknown"
+        # Use geocoder to get location
+        g = geocoder.ip(ip)
+        if g.ok:
+            loc = f"{g.city}, {g.state}, {g.country}"
+            print(f"[get_user_ip_and_location] Geocoder OK. Location for {ip}: {loc}")
+        else:
+            loc = "Unknown"
+            print(f"[get_user_ip_and_location] Geocoder failed for IP {ip}.")
+        return ip, loc
+    except Exception as exc:
+        current_app.logger.error("[get_user_ip_and_location] IP/location lookup error: %s", exc)
+        return "0.0.0.0", "Unknown"
+def get_user_dir() -> str:
+    """Determines the data directory for the current user/session."""
+    print("[get_user_dir] Determining user data directory.")
+    base = 'temp_data'
+    # Generate a UUID if fingerprint is not in session, ensure consistent length
+    uid = str(session.get("fingerprint", uuid.uuid4().hex))[:24]
+    user_email = session.get("email", "")
+    username = session.get("username", "")
+    if user_email and username:
+        # Use username for logged-in users for better identification
+        base = 'user_data'
+        uid = username # Assuming username is filesystem-safe or sanitized elsewhere
+        print(f"[get_user_dir] Logged-in user '{username}'. Using base: {base}, uid: {uid}")
+    else:
+        print(f"[get_user_dir] Anonymous user. Using base: {base}, uid: {uid}")
+    user_directory = os.path.join(base, uid)
+    print(f"[get_user_dir] Final user directory path: {user_directory}")
+    return user_directory
+================================================================================
+
 [-] This file: flask_app.py | Contents:
+# flask_app.py
 import os
 import re
 import time
 import json
 import logging
 import requests
-from flask import Flask, render_template, request, jsonify, send_from_directory
-# Setup basic logging configuration.
+import progress_tracker
+from flask import Flask, render_template, request, jsonify, send_from_directory, session, redirect, url_for, flash
+# Import Blueprints for Auth and Billing
+from _Auth import auth_bp
+from _Billing_Routes import billing_bp
+# Setup basic logging.
 logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__)
-# Point to AI microservice.
+app.secret_key = os.environ.get('APP_SEC', 'fallback_secret_key_for_dev')
+# Register Blueprints
+app.register_blueprint(auth_bp, url_prefix='/auth')
+app.register_blueprint(billing_bp, url_prefix='/billing')
+# Point to AI microservice and LoginManager.
 AI_MANAGER_URL = "https://aimanager.pythonanywhere.com/process_request"
+LOGINMANAGER_UPDATE_CREDITS_URL = os.environ.get('LOGINMANAGER_UPDATE_CREDITS_URL', 'https://loginmanager.pythonanywhere.com/update-user-credits')
+# Map categories to their JSON files
+EXPERT_FILES = {
+    "Platform Game": "platformer.json",
+    "Racing game": "racing.json",
+    "R-type style space shooter": "shooter_rtype.json",
+    "1v1 beat em up like street fighter": "fighting_streetfighter.json",
+    "Final Fight style beat em up": "fighting_finalfight.json",
+    "Starfox style 3d shooter": "shooter_starfox.json",
+    "Doom style fake 3d shooter": "shooter_doom.json",
+    "Chrono Trigger style RPG Game": "rpg_chrono.json",
+    "Silent Hill style game": "horror_silenthill.json",
+    "Other": "other.json"
+}
+def load_json_instruction(filename):
+    """Helper to load instruction JSONs from the static folder."""
+    path = os.path.join(app.root_path, 'static', 'json', 'inst', filename)
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        app.logger.error(f"Error loading {filename}: {e}")
+        return {}
 @app.route('/favicon.ico')
 def favicon():
-    # Return favicon from static directory.
+    # Log favicon route hit.
     app.logger.info("Route hit: /favicon.ico")
     return send_from_directory(
         os.path.join(app.root_path, 'static', 'icons'),
@@ -64,534 +960,964 @@ def favicon():
     )
 @app.route('/')
 def index():
-    # Render main index template.
+    # Log index route hit.
     app.logger.info("Route hit: /")
     return render_template('index.html')
 @app.route('/generate_game', methods=['POST'])
 def generate_game():
-    # Parse incoming JSON data.
+    # --- 1. Security and Billing Verification ---
+    if not session.get('token'):
+        app.logger.warning("Unauthenticated game generation attempt.")
+        return jsonify({"error": "Unauthorized. Please log in."}), 401
+    credits_remaining = session.get('credits_remaining', 0)
+    if credits_remaining <= 0:
+        app.logger.warning(f"User {session.get('email')} attempted generation with 0 credits.")
+        return jsonify({"error": "Insufficient credits. Please purchase more."}), 403
+    # --- 2. Parse Input ---
     data = request.json
     description = data.get('description', '').strip()
-    # Log incoming request payload.
     app.logger.info(f"Desc length: {len(description)}")
-    # Check for missing description.
     if not description:
         app.logger.warning("Missing game description.")
         return jsonify({"error": "Description required."}), 400
     try:
-        # Define game generation instructions.
-        system_instructions = (
-            "You are an expert game developer. Create a single-page HTML/Phaser and/or ThreeJS game based on the user's description. "
-            "Your output must be EXCLUSIVELY valid HTML containing all necessary CSS and JavaScript within it. "
-            "CRITICAL REQUIREMENTS: "
-            "1. Standard HTML5 <canvas> centered with 800x450 resolution. "
-            "2. Arrow keys to move, Enter to start, Space to shoot (if applicable). "
-            "3. MUST feature a Game Over state with Restart option. "
-            "4. Do NOT load external images, audio, or libraries. "
-            "5. STRICTLY FORBIDDEN: Do NOT use localStorage or sessionStorage. "
-            "6. Do not include markdown formatting like ```html. "
-            "7. CSS MUST include body { margin: 0; padding: 0; overflow: hidden; background-color: #000; } to prevent scrollbars. "
-            "8. MOBILE SUPPORT: Implement touch event listeners natively. Map Swipe Up/Down/Left/Right to Arrow Keys. "
-            "Map Single Tap to Space (shoot). Map Double Tap to Enter (start/restart). "
-            "The game must be fully playable and robust. "
-            "Essential features include a strict 'lives' system, distinct levels or waves, and retro chiptune audio. "
-            "Gameplay design relies on simple mechanics—like shooting, jumping, or dodging—that are easy to grasp but fiercely difficult to master. "
-            "The primary player incentives are satisfying power-ups, visual progression, and the thrill of surviving chaotic enemy patterns."
-        )
-        # Build payload for AIManager.
+        # --- 3. Deduct Credit (1 Game Gen = 1 Credit) ---
+        cred_payload = {
+            "email": session.get("email"),
+            "amount": -1,
+            "secret": os.environ.get("CRED_SECRET", "UpdateCreds")
+        }
+        app.logger.debug(f"Deducting credit via {LOGINMANAGER_UPDATE_CREDITS_URL}")
+        cred_resp = requests.post(LOGINMANAGER_UPDATE_CREDITS_URL, json=cred_payload, timeout=10)
+        if cred_resp.status_code == 200:
+            session['credits_remaining'] -= 1
+            session.modified = True
+            app.logger.info(f"Credit deducted. Remaining: {session['credits_remaining']}")
+        else:
+            app.logger.error(f"Credit deduction failed: {cred_resp.text}")
+            return jsonify({"error": "Failed to process credits on backend."}), 500
+        # --- 4. Game Classification ---
+        classifier_inst = load_json_instruction('determine_game_type.json')
+        categories_str = "\n".join(EXPERT_FILES.keys())
+        class_prompt = classifier_inst.get('prompt_template', '').replace('{categories}', categories_str).replace('{description}', description)
+        class_payload = {
+            "provider": "anthropic",
+            "model_key": "claude-sonnet-4-5-20250929",
+            "query": class_prompt,
+            "parameters": {
+                "instructions": classifier_inst.get('system', 'Output ONLY ONE matching category name.'),
+                "max_tokens": 50
+            }
+        }
+        app.logger.debug("Dispatching classification API request.")
+        class_response = requests.post(AI_MANAGER_URL, json=class_payload, timeout=30)
+        class_response.raise_for_status()
+        class_data = class_response.json()
+        class_outputs = class_data.get('outputs', [])
+        detected_class = class_outputs[0].strip() if class_outputs else "Other"
+        if detected_class not in EXPERT_FILES:
+            app.logger.warning(f"Invalid class '{detected_class}'. Using Other.")
+            detected_class = "Other"
+        app.logger.info(f"Classified game category: {detected_class}")
+        # --- 5. Build Final Prompt Payload ---
+        expert_rule_data = load_json_instruction(EXPERT_FILES[detected_class])
+        expert_rules = expert_rule_data.get('rules', '')
+        general_inst_data = load_json_instruction('general_game_instructions.json')
+        base_instructions = general_inst_data.get('instructions', '')
+        system_instructions = f"{base_instructions}\n\nEXPERT RULES FOR [{detected_class}]:\n{expert_rules}"
         payload = {
             "provider": "anthropic",
             "model_key": "claude-sonnet-4-5-20250929",
             "query": description,
             "parameters": {
                 "instructions": system_instructions,
-                "max_tokens": 8000
+                "max_tokens": 4000
             }
         }
-        # Send request and time it.
-        app.logger.debug("Dispatching request to AI Manager.")
+        # --- 6. Dispatch Main Generation ---
+        app.logger.debug("Dispatching main generation API request.")
         start_time = time.time()
         response = requests.post(AI_MANAGER_URL, json=payload, timeout=120)
         response.raise_for_status()
         manager_data = response.json()
-        # Calculate execution duration.
         duration_ms = (time.time() - start_time) * 1000
-        app.logger.info(f"Generation took {duration_ms:.2f}ms.")
-        # Extract code from response.
+        app.logger.info(f"Generation: {duration_ms:.2f}ms.")
+        progress_tracker.save_time(duration_ms)
         outputs = manager_data.get('outputs', [])
         if not outputs:
-            app.logger.error("Empty outputs from AI Manager.")
-            return jsonify({"error": "Empty response returned."}), 502
+            app.logger.error("Empty AI outputs.")
+            raise ValueError("Empty response returned.")
         generated_code = outputs[0]
-        # Cleanup markdown code tags.
+        # Clean markdown tags.
         generated_code = re.sub(r'^```html\s*', '', generated_code)
         generated_code = re.sub(r'^```\s*', '', generated_code)
         generated_code = re.sub(r'\s*```$', '', generated_code)
-        # Return cleaned game output.
-        app.logger.info("Successfully cleaned generated game.")
+        app.logger.info("Cleaned generated game.")
         return jsonify({
             "game_html": generated_code.strip(),
-            "duration_ms": duration_ms
+            "duration_ms": duration_ms,
+            "credits_remaining": session['credits_remaining']
         })
-    except requests.exceptions.RequestException as e:
-        # Log and handle connection errors.
-        app.logger.error(f"Connection error: {e}")
-        return jsonify({"error": f"Connection error: {str(e)}"}), 502
+    except (requests.exceptions.RequestException, ValueError) as e:
+        app.logger.error(f"Generation failed: {e}. Initiating credit rollback.")
+        try:
+            refund_payload = {
+                "email": session.get("email"),
+                "amount": 1,
+                "secret": os.environ.get("CRED_SECRET", "UpdateCreds")
+            }
+            requests.post(LOGINMANAGER_UPDATE_CREDITS_URL, json=refund_payload, timeout=10)
+            session['credits_remaining'] += 1
+            session.modified = True
+            app.logger.info("Credit successfully refunded.")
+        except Exception as rollback_err:
+            app.logger.error(f"Credit rollback failed: {rollback_err}")
+        return jsonify({"error": f"Generation failed: {str(e)}"}), 502
     except Exception as e:
-        # Log and handle general errors.
-        app.logger.error(f"Internal error: {e}")
+        app.logger.error(f"Internal error: {e}. Initiating credit rollback.")
+        try:
+            refund_payload = {
+                "email": session.get("email"),
+                "amount": 1,
+                "secret": os.environ.get("CRED_SECRET", "UpdateCreds")
+            }
+            requests.post(LOGINMANAGER_UPDATE_CREDITS_URL, json=refund_payload, timeout=10)
+            session['credits_remaining'] += 1
+            session.modified = True
+            app.logger.info("Credit successfully refunded.")
+        except Exception as rollback_err:
+            app.logger.error(f"Credit rollback failed: {rollback_err}")
         return jsonify({"error": f"Internal error: {str(e)}"}), 500
 if __name__ == '__main__':
-    # Run the Flask application.
+    # Run Flask app.
     app.run(debug=True)
 ================================================================================
 
-[-] This file: progress_tracker.py | Contents:
-import time
-import json
+[-] This file: game_requirements.md | Contents:
+[=] Project Instructions: Alien Cargo [=]
+[-] Core Application Architecture & UI Rules (Not sent to LLM) [-]
+* **App Concept**: Alien Cargo is a game generator. The index page features a "Describe your game..." textarea and a "Create Game" button.
+* It sends an LLM generation request to the external microservice 'AIManager' (using `claude-sonnet-4-5-20250929` for cost efficiency)
+to receive a single HTML/JS page containing a fully playable game.
+* **Grid Layout & View Toggling**:
+* Divide the screen into a strict 32-column CSS grid enforced via JavaScript. Ensure elements explicitly stay on `gridRow = '1'` to prevent vertical wrapping bugs.
+* Implement a full-height (100vh) toggle button spanning 1/32 of the width.
+* When in **Prompt View**, the button occupies column 32 (far right, labeled `<`), and the prompt area occupies columns 1-31.
+* When in **Game View**, the button occupies column 1 (far left, labeled `>`), and the game area occupies columns 2-32.
+* **Game Canvas Display**: The game `iframe` must contain an 800x450 centered canvas within the full browser view (100vh/100vw),
+including 16px margins and 16px padding to prevent clipping.
+* **Generation Lifecycle**:
+* Show a progress bar while the API request processes. Track and calculate completion time locally using a JSON storage file (`generation_times.json`) to provide an accurate,
+faked progress animation based on the user's historical average.
+* Upon successful generation, automatically toggle the UI to the Game View.
+* Immediately apply `.focus()` to the game `iframe` once it loads so keyboard event listeners (like "Enter to Start") work without requiring an initial mouse click.
+*
+Whether mobile or desktop we use a 16:9 wide profile. Virtual gamepad for mobile it is essentially a mini version of desktop.
+[-] Instructions Sent to the LLM (Prompt Payload - applies to all game types) [-]
+----
+Output EXCLUSIVELY valid HTML containing all necessary CSS and JavaScript within it. Do not include markdown formatting tags like ```html.
+Keep code around 1000 lines max (~4000 tokens).
+Do NOT load external images, audio, or libraries. STRICTLY FORBIDDEN: Do NOT use `localStorage` or `sessionStorage`.
+Controls Desktop:
+Arrow keys to move (if applicable).
+WASD to move for a second player (if applicable).
+Space to shoot.
+Require hitting "Enter" OR a specific "Mouse Click" on the canvas to start the game.
+Controls Mobile - Virtual Gamepad:
+Generate an on-screen virtual gamepad for mobile devices.
+Split the mobile screen into a grid of 2 rows and 3 columns.
+Place a D-pad/Arrow pad in section 4 (bottom-left area).
+Place Mega Drive-style A, B, C buttons in section 6 (bottom-right area).
+Games must always feature a distinct Game Over state and a clickable "Restart/Go Again" button if a player is killed.
+Use CSS flex and JavaScript enforcement to accurately position these elements.
+----
+First determine whether the game will be a 2d scroller type game in which case we use Phaser, or a 3D game i.e. Starfox space shooter in which case use ThreeJS
+Then we have the following 'experts',
+[Platform Game]
+**Core Mechanics & Physics**
+The engine must prioritize "Game Feel" via a variable jump height (holding the button jumps higher) and "Coyote Time"
+(allowing a jump for a few frames after leaving a platform).
+Movement should use basic acceleration and friction rather than instant stops.
+The collision system must handle "one-way" platforms and sloped terrain.
+**Level Structure & Progression**
+Aim for a "World" system: 4 Worlds, each containing 4 Levels (16 total).
+* **Level Length:** 90–120 seconds of gameplay.
+* **Difficulty Curve:** Introduce a new mechanic (e.g., moving platforms) in Level 1-1, combine it with hazards in 1-2, and master it by 1-4.
+* **Bosses:** Every 4th level features a "Rule of Three" boss. The player must dodge patterns and strike the boss three times during vulnerable states to win.
+**Entities & Hazards**
+* **Enemies:** Include "Patrollers" (turn at edges), "Jumpers" (timed vertical movement), and "Projectiles" (fixed-rate turrets). Enemies are defeated by jumping on their heads or using power-ups.
+* **Power-ups:** Include a "Growth" item (extra hit point), a "Projectile" item (ability to shoot), and a rare "Invincibility" star.
+* **Collectibles:** Scatter 50–100 coins per level for score, plus 3 "Hidden Medals" for completionists.
+**Technical Implementation**
+Use a "State Machine" for the player: Idle, Run, Jump, Fall, Hurt, and Die.
+Use a Tilemap system (e.g., Tiled) for levels rather than hard-coding coordinates.
+For browser performance, use a fixed timestep (60fps) to ensure physics remain consistent across different monitor refresh rates.
+[Racing game]
+Core Mechanics & PhysicsThe engine relies on fake 3D (raster projection) rather than true 3D space. The player's car sprite remains locked in the lower-center of the screen; steering actually shifts the road and world laterally relative to the car. Implement acceleration, top speed, and deceleration. Crucially, apply a centrifugal force system: when the track curves, the player's car must be pushed toward the outside edge of the curve proportional to their speed, forcing the player to counter-steer.Track Rendering (The "Pseudo-3D" Effect)Construct the track using a 1D array of "Segments." Each segment holds data for its curve magnitude, elevation (hills), and attached scenery sprites.Raster Drawing: Iterate through the track segments within the camera's draw distance from back to front (Painter’s Algorithm).Perspective Projection: Calculate the screen Y-coordinate and scale factor based on $1/Z$ (distance). Draw the road by rendering horizontal polygons (trapezoids) from the bottom of the screen to the horizon.Speed Illusion: Alternate road and grass colors (e.g., light/dark gray, light/dark green) every few segments. Scrolling through these segments creates the illusion of forward momentum.Game Structure & ProgressionDesign a continuous environment with branching paths.Time Attack: The core loop relies on a countdown timer. The player starts with 60 seconds. Reaching a checkpoint fork grants a time extension.Traffic: Populate the road with slower-moving AI cars. Collisions should drastically kill the player's speed and push them to the side, rather than destroying the car.
+[R-type style space shooter]
+Core Mechanics & The "Force" Pod
+The game relies on forced horizontal auto-scrolling; the background and terrain constantly move left, simulating forward flight. The player ship has 8-way movement but is strictly clamped to the screen boundaries.
+Crucially, implement two signature mechanics:
+Charge Beam: Tapping fire shoots rapid, weak lasers, but holding the button charges a meter. Releasing it fires a massive, piercing beam that damages multiple enemies.
+The Satellite Pod: A collectible, indestructible companion orb. It can attach to the front or rear of the player's ship to block incoming bullets and fire its own weapons. It can also be launched forward to lodge into enemies and act as an autonomous turret.
+Level Structure & Entities
+Unlike open-space shooters, the level geometry itself is a primary hazard.
+Terrain: Players must navigate tight corridors, moving walls, and indestructible structures. Touching terrain results in instant death.
+Enemy Waves: Spawn enemies deterministically based on the camera's X-coordinate. Use diverse behaviors: weak swarmers, heavily-armored stationary turrets, and ships that ambush from the left side of the screen.
+Bosses: End stages with screen-filling, multi-segmented bosses. They should have specific, isolated weak points and unleash complex, sweeping bullet patterns.
+[1v1 beat em up like street fighter]
+Core Mechanics & State Machine
+Characters must operate on a strict, frame-deterministic State Machine (Idle, Walk, Crouch, Jump, Attack, Block, Hitstun, Knockdown). Movement is deliberate: unlike platformers, jumps have committed, fixed arcs with no mid-air steering. The camera must strictly track the midpoint between the two players, clamping their movement so they cannot walk past the screen edges. Implement a 99-second round timer and a best-of-three round system.
+Collision: Hitboxes & Hurtboxes
+Do not use standard monolithic physics bodies for collisions. The engine must use a dual-box system:
+Hurtboxes: The vulnerable areas mapping the character's body.
+Hitboxes: The damage-dealing areas spawned only during specific frames of an attack.
+When a Hitbox intersects the opponent's Hurtbox, a strike occurs. Crucially, implement Pushback: successful hits or blocks must physically push both characters apart to maintain spacing and prevent sprite overlapping.
+Combat & Frame Data
+Every attack must be explicitly divided into three phases: Startup (vulnerable wind-up), Active (hitboxes generated), and Recovery (vulnerable cool-down).
+Hitstun & Blockstun: Taking a hit temporarily freezes the defender's state. If the Hitstun duration exceeds the attacker's Recovery time, a "Combo" is mathematically possible.
+Defense: Holding away from the opponent triggers a Block. High blocks defend aerial and standing attacks; low blocks (down-back) defend crouching attacks.
+Input Buffering
+Do not read inputs as instant events. Maintain a rolling "Input Buffer" array tracking the last 30 frames of joystick/keyboard states. The engine must scan this buffer to detect sequential motion inputs (e.g., Down, Down-Forward, Forward + Punch) to trigger Special Moves like projectiles.
+[Final Fight style beat em up]
+Core Mechanics & The "Belt Scroll" Perspective
+The game uses a faux-3D "belt scroll" system. Characters move along three axes simulated in 2D: X (horizontal), Y (depth into the background), and Z (vertical jumping).
+Depth Collision: A crucial mechanic is that attacks must only connect if characters share a similar Y-depth (within a small pixel threshold).
+Combat System: Implement a standard 3-hit combo triggered by rapid button presses. Include a Jump Kick, a Close-Range Grab/Throw (triggered automatically when walking directly into an enemy's hitbox), and a "Desperation Attack" that knocks back all surrounding enemies at the cost of a small chunk of the player's own health.
+Level Structure & Progression
+The camera scrolls right but relies on a strict "Lock and Clear" pacing system.
+Wave Spawning: The camera stops scrolling when a trigger line is crossed, locking the screen boundaries. The player must defeat all spawned enemies before a flashing "GO!" arrow permits further forward movement.
+Stages: Design 4 to 6 distinct environments (e.g., Slums, Subway, Elevator). End each stage with a Boss possessing a massive health bar, "super armor" (cannot be interrupted during certain wind-ups), and unique area-denial attacks.
+Entities & Interactive Objects
+Enemy Archetypes: "Grunts" (basic melee), "Weapon Users" (pipes/knives with disjointed hitboxes), and "Chargers" (quick horizontal dash attacks). The AI director should restrict aggression so only 2 or 3 enemies actively attack the player at once, while others circle.
+Breakables: Place destructible crates containing score items or health-restoring "Food."
+[Starfox style 3d shooter]
+Core Mechanics & The "Rail" System
+The game is a forced-scrolling 3D "rail shooter." The camera and the player's base pivot point move continuously forward along the global Z-axis at a constant speed. The player controls the ship's local X (horizontal) and Y (vertical) offsets within a strict invisible bounding box on the screen to dodge obstacles and aim.
+Game Feel: When the player moves, the 3D ship model must visibly pitch and roll in the direction of movement, smoothly interpolating back to center when input ceases.
+The Barrel Roll: Implement a quick lateral dash (triggered by double-tapping a direction) that grants brief invincibility frames and deflects minor projectiles.
+Combat & Targeting
+Weapons: Equip the ship with rapid-fire primary lasers and a limited inventory of "Bombs" that deal massive area-of-effect damage.
+Aiming: Project a 2D crosshair at a fixed distance ahead of the ship. Projectiles should travel from the ship's nose directly toward this reticle.
+Enemies: Spawn enemy waves using Z-axis distance triggers. Enemies should follow predetermined sweeping flight paths (Bezier curves) rather than complex reactive AI.
+Level Structure & Bosses
+Create a localized stage filled with static environmental hazards (arches, asteroids, closing doors). The level culminates in a Boss Fight. During the boss encounter, the forward "rail" scrolling halts, trapping the player and the boss in a fixed Z-depth arena until the boss's multi-stage weak points are destroyed.
+[Doom style fake 3d shooter]
+Core Mechanics & The Raycaster
+The game environment is fundamentally a 2D top-down grid, but it is rendered in first-person using Raycasting. For every vertical pixel column on the screen (e.g., 1280 columns), cast a ray from the player's position outward within a 60-degree Field of View (FOV). Step the ray forward until it intersects a solid grid cell. The distance to this intersection determines the height of the vertical line drawn on screen. Crucial: You must multiply the distance by the cosine of the angle relative to the player's facing direction to eliminate the spherical "fish-eye" distortion effect.
+Entities & Billboard Sprites
+Enemies, weapons, and decorations are not 3D models; they are 2D "Billboard" sprites scaled based on their distance from the player. To ensure sprites are properly hidden behind walls, implement a 1D Z-Buffer: an array storing the wall distance for every screen column. When rendering a sprite, only draw its vertical pixel strips if its distance is closer to the camera than the value stored in the Z-Buffer for that specific column.
+Combat & AI
+Player weapons should primarily be "Hitscan" (e.g., pistols, shotguns): when the player fires, simply cast a single ray straight forward to instantly check if an enemy bounding box is hit before a wall is. Enemy AI operates entirely on the 2D grid, relying on basic line-of-sight raycasts to determine if they can see the player to shoot or chase them.
+[Chrono Trigger style RPG Game]
+The game uses a 2D top-down perspective with tile-based maps. Crucially, eliminate "random encounters." Enemies must be visible roaming the map. When the player collides with an enemy or crosses an invisible trigger line, do not load a separate battle screen. Instead, smoothly lock the camera, slide in the combat UI overlays, and transition into battle directly on the current exploration map.
+Combat: ATB and Techs
+Implement an Active Time Battle (ATB) system rather than strict turn-based combat. Every character and enemy has an internal timer that fills at a rate dictated by their "Speed" stat.
+Spatial Attacks: Because battles happen on the map, character and enemy positioning matters. Implement Area of Effect (AoE) logic for "Techs" (skills): some attacks should damage enemies within a radial circle, while others strike all enemies caught in a straight line between the attacker and the target.
+Combo System: Implement "Dual/Triple Techs." If two (or three) specific party members both have full ATB gauges simultaneously, they can expend their turns and Magic Points (MP) together to unleash a powerful combined attack.
+State Management & Progression
+The engine needs a robust global state manager to track "Story Flags" and inventory. Design an Overworld map (a zoomed-out, scaled-down version of the world) to connect distinct Town and Dungeon tilemaps. Implement a branching dialogue system that pauses NPC movement and AI when a text box is active.
+[Silent Hill style game]
+Core Mechanics & Atmosphere
+The game prioritizes tension, puzzle-solving, and exploration over action. Implement two signature sensory mechanics:
+The Flashlight: The environment is naturally bathed in oppressive darkness or fog. The player's primary tool is a pocket flashlight that casts a harsh, narrow cone of light, illuminating only what is directly in front of them while leaving the periphery unseen.
+The Radio: A static-emitting radio acts as a crude early-warning system. As hidden enemies get closer, the auditory static grows louder and more frantic, building dread before the physical threat is even visible.
+Camera & Controls
+Replicate the classic PS1/PS2 era feel using "Tank Controls": pressing Up moves the character forward relative to their own facing direction, while Left/Right rotates them. Pair this with a system of Fixed Camera Volumes. Instead of a free-look camera, define invisible trigger zones in the environment that snap the camera to predefined, cinematic angles that track the player, deliberately obscuring what lies around the next corner.
+Combat & Entities
+Combat should feel deliberately heavy, clunky, and desperate. Use simple placeholder animations for a slow melee swing (e.g., a steel pipe) and a firing stance. Enemies should feature erratic, twitchy movement logic. They should also react to the flashlight—turning it off might allow the player to sneak past them in the dark.
+[Other]
+If the game appears to be something that does not fit the aforementioned experts, then generate something you see fit.
+================================================================================
+
+[-] This file: generation_times.json | Contents:
+[78100.25215148926, 77202.4233341217, 43851.70555114746, 45126.58381462097, 48632.45391845703, 46762.6576423645, 42514.892578125, 41997.16138839722, 43114.548444747925]
+================================================================================
+
+[-] This file: progress_bar.md | Contents:
+Here is the extracted information from the provided document regarding how to track the progress, status, and duration of requests from Anthropic models:
+**Message Batches API Progress Tracking**
+For asynchronous batch processing, you can track the progress of your requests by polling the API to see how many individual requests have completed.
+*
+**Processing Status**: The batch response includes a `processing_status` field that indicates the current stage of the batch, starting as `"in_progress"` and updating to `"ended"` once all requests finish.
+*
+**Request Counts**: You can calculate completion progress using the `request_counts` object. It breaks down the batch into the number of requests that are `"processing"`, `"succeeded"`, `"errored"`, `"canceled"`, or `"expired"`.
+*
+**Timestamps**: The API returns `created_at`, `ended_at`, and `expires_at` timestamps (note that batches expire after 24 hours) which can help track how long the batch has been running.
+**Real-Time Streaming**
+For synchronous requests, while the API does not provide an upfront time estimate, you can provide real-time progress to the user by enabling streaming (`"stream": true`).
+* Instead of waiting for the full response to finish, the API pushes server-sent events (SSE) to the client to keep the connection alive.
+* You receive `content_block_delta` events (which stream text or tool JSON sequentially) to show live generation progress as the model works.
+**Token Usage Budgets**
+For long-running tasks, Claude 4.5 models feature context awareness where the API updates the remaining token capacity after each tool call.
+* The API returns a system warning showing exact usage metrics (e.g., `<system_warning>Token usage: 35000/200000; 165000 remaining</system_warning>`).
+* This acts as a "clock" indicating how much working capacity is left before the workflow must be summarized or concluded.
+**Execution Duration Metrics**
+The SDK result messages and task outputs return exact execution times via `duration_ms` and `duration_api_ms` fields.
+While these are returned post-execution, you can log them to calculate historical average completion times for specific tasks to provide better estimates to users in the future.
+----
+Plan:
+1. Implement a polling mechanism for the Anthropic Message Batches API to track asynchronous completion counts.
+2. Implement a real-time event listener using the Anthropic Messages streaming API to track synchronous generation progress.
+3. Integrate detailed console logging across all network and processing events.
+4. Keep comments brief.
+[-]
+```python
+import anthropic
 import logging
-import requests
-# Configure verbose logging.
+import time
+# Configure verbose console logging
 logging.basicConfig(level=logging.DEBUG)
-# Define microservice base URL.
-AI_MANAGER_URL = "https://aimanager.pythonanywhere.com"
 def track_batch_progress(batch_id: str):
-    # Log starting poll event.
+    # Initialize the client
+    client = anthropic.Anthropic()
     logging.debug(f"Starting poll for batch: {batch_id}")
     while True:
-        try:
-            # Fetch current batch state.
-            url = f"{AI_MANAGER_URL}/batch/{batch_id}"
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-            batch = response.json()
-            # Extract and log status.
-            status = batch.get("processing_status")
-            logging.info(f"Current batch status: {status}")
-            if status == "ended":
-                # Exit loop if ended.
-                logging.debug("Batch processing has finished.")
-                break
-            # Log completion metrics.
-            counts = batch.get("request_counts", {})
-            logging.debug(f"Progress counts: {counts}")
-        except requests.exceptions.RequestException as e:
-            # Log connection error.
-            logging.error(f"Error fetching batch: {e}")
-        # Pause before next poll.
+        # Fetch current batch state
+        batch = client.messages.batches.retrieve(batch_id)
+        status = batch.processing_status
+        logging.info(f"Current batch status: {status}")
+        if status == "ended":
+            # Exit loop on completion
+            logging.debug("Batch processing has finished.")
+            break
+        # Log exact completion metrics
+        counts = batch.request_counts
+        logging.debug(f"Progress counts: {counts}")
+        # Pause before polling again
         logging.info("Sleeping 10s before next poll.")
         time.sleep(10)
 def stream_request_progress():
-    # Log streaming request start.
+    # Initialize the client
+    client = anthropic.Anthropic()
     logging.debug("Initiating streaming request.")
-    # Define microservice payload.
-    payload = {
-        "provider": "anthropic",
-        "model_key": "claude-opus-4-6",
-        "query": "Explain quantum computing.",
-        "parameters": {
-            "stream": True,
-            "max_tokens": 1024
-        }
-    }
-    try:
-        # Open continuous stream.
-        url = f"{AI_MANAGER_URL}/stream"
-        with requests.post(url, json=payload, stream=True, timeout=120) as resp:
-            resp.raise_for_status()
-            logging.info("Stream connection opened.")
-            # Process stream events.
-            for line in resp.iter_lines():
-                if line:
-                    # Log text chunk.
-                    logging.debug("Text delta chunk received.")
-                    # Decode and print line.
-                    print(line.decode('utf-8'), end="", flush=True)
-            # Log stream stop.
-            logging.info("\nMessage generation stopped.")
-    except requests.exceptions.RequestException as e:
-        # Log connection error.
-        logging.error(f"Streaming connection error: {e}")
+    # Open continuous stream connection
+    with client.messages.stream(
+        max_tokens=1024,
+        messages=[{"role": "user", "content": "Explain quantum computing."}],
+        model="claude-opus-4-6",
+    ) as stream:
+        logging.info("Stream connection opened.")
+        # Process events as they arrive
+        for event in stream:
+            if event.type == "content_block_delta":
+                # Log incremental text generation
+                logging.debug("Text delta chunk received.")
+                print(event.delta.text, end="", flush=True)
+            elif event.type == "message_stop":
+                # Log stream termination
+                logging.info("Message generation stopped.")
+        # Extract final execution metrics
+        message = stream.get_final_message()
+        logging.info(f"Final token usage: {message.usage}")
 if __name__ == "__main__":
-    # Start execution.
+    # Example execution triggers
     logging.debug("Script execution started.")
-    # Track stream progress.
+    # Execute stream tracking
     stream_request_progress()
-    # Track batch progress.
+    # Execute batch tracking
     # track_batch_progress("msgbatch_123")
+```
 ================================================================================
 
-[-] This file: templates/index.html | Contents:
+[-] This file: progress_tracker.py | Contents:
+import os
+import json
+import logging
+# Setup basic logging configuration.
+logging.basicConfig(level=logging.DEBUG)
+# Define local storage path.
+STORAGE_FILE = "generation_times.json"
+def load_times():
+    # Check if storage file exists.
+    logging.debug(f"Checking for file: {STORAGE_FILE}")
+    if not os.path.exists(STORAGE_FILE):
+        # Log missing file.
+        logging.info("Storage file not found.")
+        return []
+    try:
+        # Read and parse JSON file.
+        logging.debug("Opening file for reading.")
+        with open(STORAGE_FILE, 'r') as f:
+            data = json.load(f)
+        # Log successful read.
+        logging.info(f"Loaded {len(data)} time records.")
+        return data
+    except Exception as e:
+        # Log file read error.
+        logging.error(f"Error reading file: {e}")
+        return []
+def save_time(duration_ms):
+    # Log save request.
+    logging.debug(f"Saving new duration: {duration_ms}ms")
+    # Load existing time records.
+    times = load_times()
+    # Append new duration.
+    times.append(duration_ms)
+    logging.debug("Appended duration to list.")
+    try:
+        # Write list to JSON file.
+        logging.debug("Opening file for writing.")
+        with open(STORAGE_FILE, 'w') as f:
+            json.dump(times, f)
+        # Log successful write.
+        logging.info("Successfully saved times to disk.")
+    except Exception as e:
+        # Log write error.
+        logging.error(f"Error writing file: {e}")
+def get_average_time():
+    # Log average calculation request.
+    logging.debug("Calculating average generation time.")
+    # Load current times.
+    times = load_times()
+    if not times:
+        # Return default if no data.
+        logging.info("No data. Returning default 15000ms.")
+        return 15000.0
+    # Calculate mathematical average.
+    avg = sum(times) / len(times)
+    # Log calculated average.
+    logging.info(f"Calculated average: {avg:.2f}ms")
+    return avg
+if __name__ == "__main__":
+    # Log script start.
+    logging.debug("Progress tracker execution started.")
+    # Test saving a time.
+    logging.info("Testing save function.")
+    save_time(14500)
+    # Test retrieving average.
+    logging.info("Testing average calculation.")
+    avg_time = get_average_time()
+    # Log script end.
+    logging.debug("Progress tracker execution finished.")
+================================================================================
+
+[-] This file: static/json/determine_game_type.json | Contents:
+{
+  "system_instruction": "Output ONLY ONE matching category name. No extra words.",
+  "categories": [
+    "Platform Game",
+    "Racing game",
+    "R-type style space shooter",
+    "1v1 beat em up like street fighter",
+    "Final Fight style beat em up",
+    "Starfox style 3d shooter",
+    "Doom style fake 3d shooter",
+    "Chrono Trigger style RPG Game",
+    "Silent Hill style game",
+    "Other"
+  ],
+  "prompt_template": "Categories:\n{categories}\n\nMatch this description: {description}"
+}
+================================================================================
+
+[-] This file: static/json/fighting_finalfight.json | Contents:
+{
+  "rules": "Core Mechanics & The 'Belt Scroll' Perspective\nThe game uses a faux-3D 'belt scroll' system. Characters move along three axes simulated in 2D: X (horizontal), Y (depth into the background), and Z (vertical jumping).\nDepth Collision: A crucial mechanic is that attacks must only connect if characters share a similar Y-depth (within a small pixel threshold).\nCombat System: Implement a standard 3-hit combo triggered by rapid button presses. Include a Jump Kick, a Close-Range Grab/Throw (triggered automatically when walking directly into an enemy's hitbox), and a 'Desperation Attack' that knocks back all surrounding enemies at the cost of a small chunk of the player's own health.\nLevel Structure & Progression\nThe camera scrolls right but relies on a strict 'Lock and Clear' pacing system.\nWave Spawning: The camera stops scrolling when a trigger line is crossed, locking the screen boundaries. The player must defeat all spawned enemies before a flashing 'GO!' arrow permits further forward movement.\nStages: Design 4 to 6 distinct environments (e.g., Slums, Subway, Elevator). End each stage with a Boss possessing a massive health bar, 'super armor' (cannot be interrupted during certain wind-ups), and unique area-denial attacks.\nEntities & Interactive Objects\nEnemy Archetypes: 'Grunts' (basic melee), 'Weapon Users' (pipes/knives with disjointed hitboxes), and 'Chargers' (quick horizontal dash attacks). The AI director should restrict aggression so only 2 or 3 enemies actively attack the player at once, while others circle.\nBreakables: Place destructible crates containing score items or health-restoring 'Food.'"
+}
+================================================================================
+
+[-] This file: static/json/fighting_streetfighter.json | Contents:
+{
+  "rules": "Core Mechanics & State Machine\nCharacters must operate on a strict, frame-deterministic State Machine (Idle, Walk, Crouch, Jump, Attack, Block, Hitstun, Knockdown). Movement is deliberate: unlike platformers, jumps have committed, fixed arcs with no mid-air steering. The camera must strictly track the midpoint between the two players, clamping their movement so they cannot walk past the screen edges. Implement a 99-second round timer and a best-of-three round system.\nCollision: Hitboxes & Hurtboxes\nDo not use standard monolithic physics bodies for collisions. The engine must use a dual-box system:\nHurtboxes: The vulnerable areas mapping the character's body.\nHitboxes: The damage-dealing areas spawned only during specific frames of an attack.\nWhen a Hitbox intersects the opponent's Hurtbox, a strike occurs. Crucially, implement Pushback: successful hits or blocks must physically push both characters apart to maintain spacing and prevent sprite overlapping.\nCombat & Frame Data\nEvery attack must be explicitly divided into three phases: Startup (vulnerable wind-up), Active (hitboxes generated), and Recovery (vulnerable cool-down).\nHitstun & Blockstun: Taking a hit temporarily freezes the defender's state. If the Hitstun duration exceeds the attacker's Recovery time, a 'Combo' is mathematically possible.\nDefense: Holding away from the opponent triggers a Block. High blocks defend aerial and standing attacks; low blocks (down-back) defend crouching attacks.\nInput Buffering\nDo not read inputs as instant events. Maintain a rolling 'Input Buffer' array tracking the last 30 frames of joystick/keyboard states. The engine must scan this buffer to detect sequential motion inputs (e.g., Down, Down-Forward, Forward + Punch) to trigger Special Moves like projectiles."
+}
+================================================================================
+
+[-] This file: static/json/general_game_instructions.json | Contents:
+{
+  "instructions": "You are an expert game developer. Create a single-page HTML/JS game. CRITICAL REQUIREMENTS: 1. Arrow keys to move if applicable. 2. WASD for second player if applicable. 3. Enter or Mouse Click to start. 4. Space to shoot. 5. MUST feature clickable Restart/Go again button. 6. Keep code around 1000 lines max (~4000 tokens). 7. FOR MOBILE: Generate a virtual gamepad. 8. Split mobile screen: 2 rows, 3 columns. 9. Section 4 (bottom-left): Cross-shaped D-pad (Up, Down, Left, Right). 10. Section 6 (bottom-right): Circular A, B, C buttons arranged in a diagonal line (bottom-left to top-right). 11. Use CSS flex/grid and JS enforcement. 12. Output EXCLUSIVELY valid HTML containing CSS/JS. 13. Do NOT load external images or audio. 14. STRICTLY FORBIDDEN: Do NOT use localStorage or sessionStorage. 15. Do not include markdown formatting like ```html. 16. Determine if 2D scroller (Phaser) or 3D game (ThreeJS). 17. Attach ALL keyboard event listeners directly to `window`. 18. For 3D games, request pointer-lock ONLY upon explicit canvas click. 19. ALWAYS add detailed console.log() statements for ALL UI interactions (button clicks, key presses, sequences) so bugs can be tracked. 20. Games must always feature a distinct Game Over state."
+}
+================================================================================
+
+[-] This file: static/json/horror_silenthill.json | Contents:
+{
+  "rules": "Core Mechanics & Atmosphere\nThe game prioritizes tension, puzzle-solving, and exploration over action. Implement two signature sensory mechanics:\nThe Flashlight: The environment is naturally bathed in oppressive darkness or fog. The player's primary tool is a pocket flashlight that casts a harsh, narrow cone of light, illuminating only what is directly in front of them while leaving the periphery unseen.\nThe Radio: A static-emitting radio acts as a crude early-warning system. As hidden enemies get closer, the auditory static grows louder and more frantic, building dread before the physical threat is even visible.\nCamera & Controls\nReplicate the classic PS1/PS2 era feel using 'Tank Controls': pressing Up moves the character forward relative to their own facing direction, while Left/Right rotates them. Pair this with a system of Fixed Camera Volumes. Instead of a free-look camera, define invisible trigger zones in the environment that snap the camera to predefined, cinematic angles that track the player, deliberately obscuring what lies around the next corner.\nCombat & Entities\nCombat should feel deliberately heavy, clunky, and desperate. Use simple placeholder animations for a slow melee swing (e.g., a steel pipe) and a firing stance. Enemies should feature erratic, twitchy movement logic. They should also react to the flashlight—turning it off might allow the player to sneak past them in the dark."
+}
+================================================================================
+
+[-] This file: static/json/other.json | Contents:
+{
+  "rules": "If the game appears to be something that does not fit the aforementioned experts, then generate something you see fit based strictly on the user description."
+}
+================================================================================
+
+[-] This file: static/json/platformer.json | Contents:
+{
+  "rules": "**Core Mechanics & Physics**\nThe engine must prioritize 'Game Feel' via a variable jump height (holding the button jumps higher) and 'Coyote Time' (allowing a jump for a few frames after leaving a platform).\nMovement should use basic acceleration and friction rather than instant stops.\nThe collision system must handle 'one-way' platforms and sloped terrain.\n**Level Structure & Progression**\nAim for a 'World' system: 4 Worlds, each containing 4 Levels (16 total).\n* **Level Length:** 90–120 seconds of gameplay.\n* **Difficulty Curve:** Introduce a new mechanic (e.g., moving platforms) in Level 1-1, combine it with hazards in 1-2, and master it by 1-4.\n* **Bosses:** Every 4th level features a 'Rule of Three' boss. The player must dodge patterns and strike the boss three times during vulnerable states to win.\n**Entities & Hazards**\n* **Enemies:** Include 'Patrollers' (turn at edges), 'Jumpers' (timed vertical movement), and 'Projectiles' (fixed-rate turrets). Enemies are defeated by jumping on their heads or using power-ups.\n* **Power-ups:** Include a 'Growth' item (extra hit point), a 'Projectile' item (ability to shoot), and a rare 'Invincibility' star.\n* **Collectibles:** Scatter 50–100 coins per level for score, plus 3 'Hidden Medals' for completionists.\n**Technical Implementation**\nUse a 'State Machine' for the player: Idle, Run, Jump, Fall, Hurt, and Die.\nUse a Tilemap system (e.g., Tiled) for levels rather than hard-coding coordinates.\nFor browser performance, use a fixed timestep (60fps) to ensure physics remain consistent across different monitor refresh rates."
+}
+================================================================================
+
+[-] This file: static/json/racing.json | Contents:
+{
+  "rules": "Core Mechanics & Physics\nThe engine relies on fake 3D (raster projection) rather than true 3D space. The player's car sprite remains locked in the lower-center of the screen; steering actually shifts the road and world laterally relative to the car. Implement acceleration, top speed, and deceleration. Crucially, apply a centrifugal force system: when the track curves, the player's car must be pushed toward the outside edge of the curve proportional to their speed, forcing the player to counter-steer.\nTrack Rendering (The 'Pseudo-3D' Effect)\nConstruct the track using a 1D array of 'Segments.' Each segment holds data for its curve magnitude, elevation (hills), and attached scenery sprites.\nRaster Drawing: Iterate through the track segments within the camera's draw distance from back to front (Painter’s Algorithm).\nPerspective Projection: Calculate the screen Y-coordinate and scale factor based on 1/Z (distance). Draw the road by rendering horizontal polygons (trapezoids) from the bottom of the screen to the horizon.\nSpeed Illusion: Alternate road and grass colors (e.g., light/dark gray, light/dark green) every few segments. Scrolling through these segments creates the illusion of forward momentum.\nGame Structure & Progression\nDesign a continuous environment with branching paths.\nTime Attack: The core loop relies on a countdown timer. The player starts with 60 seconds. Reaching a checkpoint fork grants a time extension.\nTraffic: Populate the road with slower-moving AI cars. Collisions should drastically kill the player's speed and push them to the side, rather than destroying the car."
+}
+================================================================================
+
+[-] This file: static/json/rpg_chrono.json | Contents:
+{
+  "rules": "The game uses a 2D top-down perspective with tile-based maps. Crucially, eliminate 'random encounters.' Enemies must be visible roaming the map. When the player collides with an enemy or crosses an invisible trigger line, do not load a separate battle screen. Instead, smoothly lock the camera, slide in the combat UI overlays, and transition into battle directly on the current exploration map.\nCombat: ATB and Techs\nImplement an Active Time Battle (ATB) system rather than strict turn-based combat. Every character and enemy has an internal timer that fills at a rate dictated by their 'Speed' stat.\nSpatial Attacks: Because battles happen on the map, character and enemy positioning matters. Implement Area of Effect (AoE) logic for 'Techs' (skills): some attacks should damage enemies within a radial circle, while others strike all enemies caught in a straight line between the attacker and the target.\nCombo System: Implement 'Dual/Triple Techs.' If two (or three) specific party members both have full ATB gauges simultaneously, they can expend their turns and Magic Points (MP) together to unleash a powerful combined attack.\nState Management & Progression\nThe engine needs a robust global state manager to track 'Story Flags' and inventory. Design an Overworld map (a zoomed-out, scaled-down version of the world) to connect distinct Town and Dungeon tilemaps. Implement a branching dialogue system that pauses NPC movement and AI when a text box is active."
+}
+================================================================================
+
+[-] This file: static/json/shooter_doom.json | Contents:
+{
+  "rules": "Core Mechanics & The Raycaster\nThe game environment is fundamentally a 2D top-down grid, but it is rendered in first-person using Raycasting. For every vertical pixel column on the screen (e.g., 1280 columns), cast a ray from the player's position outward within a 60-degree Field of View (FOV). Step the ray forward until it intersects a solid grid cell. The distance to this intersection determines the height of the vertical line drawn on screen. Crucial: You must multiply the distance by the cosine of the angle relative to the player's facing direction to eliminate the spherical 'fish-eye' distortion effect.\nEntities & Billboard Sprites\nEnemies, weapons, and decorations are not 3D models; they are 2D 'Billboard' sprites scaled based on their distance from the player. To ensure sprites are properly hidden behind walls, implement a 1D Z-Buffer: an array storing the wall distance for every screen column. When rendering a sprite, only draw its vertical pixel strips if its distance is closer to the camera than the value stored in the Z-Buffer for that specific column.\nCombat & AI\nPlayer weapons should primarily be 'Hitscan' (e.g., pistols, shotguns): when the player fires, simply cast a single ray straight forward to instantly check if an enemy bounding box is hit before a wall is. Enemy AI operates entirely on the 2D grid, relying on basic line-of-sight raycasts to determine if they can see the player to shoot or chase them."
+}
+================================================================================
+
+[-] This file: static/json/shooter_rtype.json | Contents:
+{
+  "rules": "Core Mechanics & The 'Force' Pod\nThe game relies on forced horizontal auto-scrolling; the background and terrain constantly move left, simulating forward flight. The player ship has 8-way movement but is strictly clamped to the screen boundaries.\nCrucially, implement two signature mechanics:\nCharge Beam: Tapping fire shoots rapid, weak lasers, but holding the button charges a meter. Releasing it fires a massive, piercing beam that damages multiple enemies.\nThe Satellite Pod: A collectible, indestructible companion orb. It can attach to the front or rear of the player's ship to block incoming bullets and fire its own weapons. It can also be launched forward to lodge into enemies and act as an autonomous turret.\nLevel Structure & Entities\nUnlike open-space shooters, the level geometry itself is a primary hazard.\nTerrain: Players must navigate tight corridors, moving walls, and indestructible structures. Touching terrain results in instant death.\nEnemy Waves: Spawn enemies deterministically based on the camera's X-coordinate. Use diverse behaviors: weak swarmers, heavily-armored stationary turrets, and ships that ambush from the left side of the screen.\nBosses: End stages with screen-filling, multi-segmented bosses. They should have specific, isolated weak points and unleash complex, sweeping bullet patterns."
+}
+================================================================================
+
+[-] This file: static/json/shooter_starfox.json | Contents:
+{
+  "rules": "Core Mechanics & The 'Rail' System\nThe game is a forced-scrolling 3D 'rail shooter.' The camera and the player's base pivot point move continuously forward along the global Z-axis at a constant speed. The player controls the ship's local X (horizontal) and Y (vertical) offsets within a strict invisible bounding box on the screen to dodge obstacles and aim.\nGame Feel: When the player moves, the 3D ship model must visibly pitch and roll in the direction of movement, smoothly interpolating back to center when input ceases.\nThe Barrel Roll: Implement a quick lateral dash (triggered by double-tapping a direction) that grants brief invincibility frames and deflects minor projectiles.\nCombat & Targeting\nWeapons: Equip the ship with rapid-fire primary lasers and a limited inventory of 'Bombs' that deal massive area-of-effect damage.\nAiming: Project a 2D crosshair at a fixed distance ahead of the ship. Projectiles should travel from the ship's nose directly toward this reticle.\nEnemies: Spawn enemy waves using Z-axis distance triggers. Enemies should follow predetermined sweeping flight paths (Bezier curves) rather than complex reactive AI.\nLevel Structure & Bosses\nCreate a localized stage filled with static environmental hazards (arches, asteroids, closing doors). The level culminates in a Boss Fight. During the boss encounter, the forward 'rail' scrolling halts, trapping the player and the boss in a fixed Z-depth arena until the boss's multi-stage weak points are destroyed."
+}
+================================================================================
+
+[-] This file: templates/base.html | Contents:
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Alien Cargo - Game Generator</title>
+    <title>Alien Cargo</title>
     <style>
         body {
             background-color: #121212;
             color: #ffffff;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            font-family: sans-serif;
             margin: 0;
-            padding: 10px;
-            height: 100vh;
-            box-sizing: border-box;
-            overflow: hidden;
+            padding: 0;
+            overflow-x: hidden;
         }
-        h1 {
+        nav {
+            display: flex;
+            justify-content: space-between;
+            background: #1e1e1e;
+            padding: 15px 20px;
+            align-items: center;
+            border-bottom: 1px solid #333;
+            height: 30px;
+        }
+        nav a {
             color: #00d2ff;
-            margin: 5px 0 0 0;
-            font-size: 24px;
-        }
-        p.subtitle {
-            color: #aaaaaa;
-            margin: 5px 0 10px 0;
-            font-size: 14px;
-        }
-        #generator-ui {
-            width: 100%;
-            max-width: 800px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        textarea {
-            width: 100%;
-            height: 60px;
-            padding: 10px;
-            font-size: 14px;
-            font-family: inherit;
-            background-color: #1e1e1e;
-            color: #ffffff;
-            border: 1px solid #333;
-            border-radius: 8px;
-            resize: none;
-            box-sizing: border-box;
-        }
-        textarea:focus {
-            outline: none;
-            border-color: #00d2ff;
-        }
-        button {
-            padding: 10px;
-            font-size: 16px;
+            text-decoration: none;
+            margin-right: 15px;
             font-weight: bold;
-            cursor: pointer;
-            background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
-            color: #ffffff;
-            border: none;
-            border-radius: 8px;
-            transition: opacity 0.2s, transform 0.1s;
         }
-        button:hover {
-            opacity: 0.9;
+        nav a:hover { color: #fff; }
+        .nav-right { display: flex; align-items: center; }
+        .cost-text {
+            color: #aaa;
+            font-size: 12px;
+            margin-right: 15px;
+            font-weight: bold;
         }
-        button:active {
-            transform: scale(0.98);
+        .credits-badge {
+            background: #3a7bd5;
+            padding: 5px 10px;
+            border-radius: 5px;
+            margin-right: 15px;
+            font-size: 14px;
+            font-weight: bold;
         }
-        button:disabled {
-            background: #555555;
-            color: #888888;
-            cursor: not-allowed;
-            transform: none;
-        }
-        /* Container scales dynamically. */
-        #game-container {
-            flex: 1;
-            width: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 0;
-            overflow: hidden;
-            position: relative;
-        }
-        /* Lock aspect ratio. */
-        #game-wrapper {
-            background-color: #000000;
-            border: 2px solid #333;
-            border-radius: 4px;
-            position: relative;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            aspect-ratio: 16/9;
-            height: 100%;
-            max-width: 100%;
-            overflow: hidden;
-        }
-        iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-            border-radius: 4px;
-            background-color: #000;
-            display: block;
-            overflow: hidden;
-        }
-        /* Overlay loading screen. */
-        #loading {
-            display: none;
+        .flash-messages {
             position: absolute;
-            top: 0;
-            left: 0;
+            top: 70px;
             width: 100%;
-            height: 100%;
-            background-color: #000000;
+            display: flex;
             flex-direction: column;
-            justify-content: center;
             align-items: center;
-            gap: 15px;
-            color: #00d2ff;
-            font-size: 18px;
-            font-weight: bold;
-            z-index: 10;
+            z-index: 1000;
+            pointer-events: none;
         }
-        /* Rotate overlay styles. */
-        #rotate-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background-color: rgba(0, 0, 0, 0.95);
-            z-index: 9999;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            color: #00d2ff;
-            font-size: 20px;
-            font-weight: bold;
+        .flash {
+            padding: 10px 20px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            pointer-events: auto;
+            max-width: 600px;
+            text-align: center;
         }
-        .phone-icon {
-            width: 40px;
-            height: 70px;
-            border: 3px solid #00d2ff;
-            border-radius: 6px;
-            margin-bottom: 20px;
-            animation: tilt 2s infinite ease-in-out;
-        }
-        @keyframes tilt {
-            0% { transform: rotate(0deg); }
-            50% { transform: rotate(90deg); }
-            100% { transform: rotate(90deg); }
-        }
-        /* Force landscape on mobile. */
-        @media screen and (max-width: 768px) and (orientation: portrait) {
-            #rotate-overlay {
-                display: flex;
-            }
-        }
+        .flash.success { background: rgba(0, 255, 0, 0.2); border: 1px solid #0f0; }
+        .flash.danger, .flash.error { background: rgba(255, 0, 0, 0.2); border: 1px solid #f00; }
     </style>
+    {% block head %}{% endblock %}
 </head>
 <body>
-    <div id="rotate-overlay">
-        <div class="phone-icon"></div>
-        <span>Please rotate to landscape</span>
-    </div>
-    <h1>Alien Cargo 🛸</h1>
-    <p class="subtitle">AI-Powered Instant Game Generator</p>
-    <div id="generator-ui">
-        <textarea id="game-desc" placeholder="Describe your game... (e.g., A top-down space shooter where you defend cargo ships from alien swarms)"></textarea>
-        <button id="create-btn">Create Game</button>
-    </div>
-    <div id="game-container">
-        <div id="game-wrapper">
-            <div id="loading">
-                <span id="loading-text">Compiling game logic...</span>
-            </div>
-            <iframe id="game-frame" sandbox="allow-scripts" scrolling="no"></iframe>
+    <nav>
+        <div class="nav-left">
+            <a href="{{ url_for('index') }}">Alien Cargo 🛸</a>
+            <a href="{{ url_for('billing.tiers') }}">Store</a>
         </div>
+        <div class="nav-right">
+            <span class="cost-text">1 credit per game gen</span>
+            {% if session.get('token') %}
+                <div class="credits-badge">Credits: <span id="nav-credits">{{ session.get('credits_remaining', 0) }}</span></div>
+                <a href="{{ url_for('auth.logout') }}">Logout</a>
+            {% else %}
+                <a href="{{ url_for('auth.login') }}">Login</a>
+                <a href="{{ url_for('auth.register') }}">Register</a>
+            {% endif %}
+        </div>
+    </nav>
+    <div class="flash-messages">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
     </div>
-    <script>
-        // Use local Flask API route.
-        const FLASK_API_URL = "/generate_game";
-        // Log orientation changes.
-        window.addEventListener('orientationchange', () => {
-            console.log(`UI Event: Orientation changed to ${window.orientation}.`);
-        });
-        // Build dynamic JS controls banner.
-        function createControlsBanner() {
-            console.log("UI Event: Building JS controls banner.");
-            // Create banner container element.
-            const banner = document.createElement('div');
-            banner.id = 'controls-banner';
-            // Apply JS styling to banner.
-            banner.style.position = 'absolute';
-            banner.style.top = '10px';
-            banner.style.left = '50%';
-            banner.style.transform = 'translateX(-50%)';
-            banner.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
-            banner.style.color = '#00d2ff';
-            banner.style.padding = '8px 16px';
-            banner.style.borderRadius = '20px';
-            banner.style.fontSize = '12px';
-            banner.style.display = 'flex';
-            banner.style.gap = '15px';
-            banner.style.alignItems = 'center';
-            banner.style.zIndex = '20';
-            banner.style.border = '1px solid #00d2ff';
-            // Create controls text content.
-            const text = document.createElement('span');
-            text.innerHTML = '<b>PC:</b> Arrows, Space, Enter | <b>Mobile:</b> Swipe, Tap, Double-Tap';
-            // Create close button.
-            const closeBtn = document.createElement('button');
-            closeBtn.innerText = 'X';
-            // Apply JS styling to button.
-            closeBtn.style.background = 'transparent';
-            closeBtn.style.border = 'none';
-            closeBtn.style.color = '#ff4444';
-            closeBtn.style.cursor = 'pointer';
-            closeBtn.style.fontWeight = 'bold';
-            closeBtn.style.padding = '0';
-            // Handle close button click.
-            closeBtn.addEventListener('click', () => {
-                console.log("UI Event: Controls banner closed.");
-                banner.style.display = 'none';
-            });
-            // Append elements to DOM.
-            banner.appendChild(text);
-            banner.appendChild(closeBtn);
-            document.getElementById('game-container').appendChild(banner);
-            console.log("DOM Event: Controls banner attached.");
-        }
-        // Handle loading locally saved game.
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log("LifeCycle Event: DOM Content Loaded.");
-            const savedGame = localStorage.getItem('alien_cargo_last_game');
-            const savedDesc = localStorage.getItem('alien_cargo_last_desc');
-            if (savedDesc) {
-                console.log("Storage Event: Restoring game description.");
-                document.getElementById('game-desc').value = savedDesc;
-            }
-            if (savedGame) {
-                console.log("Storage Event: Loading saved game HTML.");
-                const iframe = document.getElementById('game-frame');
-                iframe.srcdoc = savedGame;
-            }
-            // Initialize the controls banner.
-            createControlsBanner();
-        });
-        // Handle textarea input logging.
-        document.getElementById('game-desc').addEventListener('input', () => {
-             console.log("UI Event: Textarea input modified.");
-        });
-        // Handle button click logic.
-        document.getElementById('create-btn').addEventListener('click', async () => {
-            console.log("UI Event: 'Create Game' button clicked.");
-            const descInput = document.getElementById('game-desc').value.trim();
-            console.log(`Data Event: Input length: ${descInput.length}`);
-            if (!descInput) {
-                console.warn("Validation Event: Empty description blocked.");
-                alert("Please describe your game first!");
-                return;
-            }
-            const btn = document.getElementById('create-btn');
-            const loading = document.getElementById('loading');
-            const iframe = document.getElementById('game-frame');
-            // Set up progress bar UI.
-            let progressContainer = document.getElementById('progress-container');
-            if (!progressContainer) {
-                console.log("UI Event: Building JS progress bar.");
-                progressContainer = document.createElement('div');
-                progressContainer.id = 'progress-container';
-                progressContainer.style.width = '80%';
-                progressContainer.style.height = '15px';
-                progressContainer.style.border = '2px solid #00d2ff';
-                progressContainer.style.borderRadius = '8px';
-                progressContainer.style.overflow = 'hidden';
-                const bar = document.createElement('div');
-                bar.id = 'progress-bar';
-                bar.style.width = '0%';
-                bar.style.height = '100%';
-                bar.style.backgroundColor = '#00d2ff';
-                bar.style.transition = 'width 0.2s linear';
-                progressContainer.appendChild(bar);
-                loading.insertBefore(progressContainer, document.getElementById('loading-text'));
-            }
-            const progressBar = document.getElementById('progress-bar');
-            progressBar.style.width = '0%';
-            // Update UI state to loading.
-            console.log("UI State: Disabling button, showing loader.");
-            btn.disabled = true;
-            btn.innerText = "Generating...";
-            loading.style.display = 'flex';
-            // Clear previous game iframe.
-            console.log("UI State: Cleared previous iframe source.");
-            iframe.srcdoc = "";
-            // Start fake progress history.
-            let avgTime = parseInt(localStorage.getItem('alien_cargo_avg_time')) || 15000;
-            let startTime = Date.now();
-            console.log(`UI Event: Starting progress bar. Avg: ${avgTime}ms`);
-            let progressInterval = setInterval(() => {
-                let elapsed = Date.now() - startTime;
-                let progress = Math.min(90, (elapsed / avgTime) * 100);
-                progressBar.style.width = `${progress}%`;
-            }, 200);
-            // Prepare request payload.
-            const payload = { description: descInput };
-            console.log("Network Event: POST request initiated.", FLASK_API_URL);
-            try {
-                const response = await fetch(FLASK_API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                console.log(`Network Event: Response status: ${response.status}`);
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                const data = await response.json();
-                console.log("Data Event: JSON payload parsed.");
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-                // Finish progress animation.
-                clearInterval(progressInterval);
-                progressBar.style.width = '100%';
-                console.log("UI Event: Progress bar completed.");
-                // Update running average.
-                if (data.duration_ms) {
-                    let newAvg = (avgTime + data.duration_ms) / 2;
-                    localStorage.setItem('alien_cargo_avg_time', newAvg.toString());
-                    console.log(`Storage Event: Updated average time to ${newAvg}ms.`);
-                }
-                // Inject generated game.
-                console.log("UI State: Injecting HTML into iframe.");
-                iframe.srcdoc = data.game_html;
-                // Save state to local storage.
-                localStorage.setItem('alien_cargo_last_game', data.game_html);
-                localStorage.setItem('alien_cargo_last_desc', descInput);
-                console.log("Storage Event: Saved game state locally.");
-            } catch (error) {
-                console.error("Error Event: API communication failed.", error);
-                clearInterval(progressInterval);
-                alert("Failed to generate game. Check console for details.");
-            } finally {
-                // Restore UI ready state.
-                console.log("UI State: Restoring interface layout.");
-                setTimeout(() => {
-                    btn.disabled = false;
-                    btn.innerText = "Create Game";
-                    loading.style.display = 'none';
-                    progressBar.style.width = '0%';
-                }, 500); // Visual transition delay.
-                // Ensure banner is visible again.
-                const banner = document.getElementById('controls-banner');
-                if (banner && banner.style.display === 'none') {
-                    console.log("UI Event: Resetting banner visibility.");
-                    banner.style.display = 'flex';
-                }
-            }
-        });
-    </script>
+    {% block content %}{% endblock %}
 </body>
 </html>
+================================================================================
+
+[-] This file: templates/index.html | Contents:
+{% extends "base.html" %}
+{% block head %}
+<style>
+    #app-container {
+        display: grid;
+        grid-template-columns: repeat(32, 1fr);
+        grid-template-rows: calc(100vh - 61px); /* Accounts for nav height + borders */
+        width: 100vw;
+        overflow: hidden;
+    }
+    #toggle-btn {
+        background: #3a7bd5;
+        color: #fff;
+        border: none;
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 20px;
+        z-index: 100;
+        height: 100%;
+        width: 100%;
+    }
+    #toggle-btn:hover { background: #00d2ff; }
+    iframe {
+        border: none;
+        background-color: #000;
+        outline: none; /* Hide focus ring. */
+    }
+    #prompt-area {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        box-sizing: border-box;
+        position: relative;
+    }
+    #game-desc {
+        width: 100%;
+        max-width: 600px;
+        height: 120px;
+        margin-bottom: 15px;
+        background: #1e1e1e;
+        color: #fff;
+        padding: 10px;
+        border: 1px solid #333;
+    }
+    #create-btn {
+        padding: 10px 20px;
+        background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
+        color: #fff;
+        border: none;
+        cursor: pointer;
+        font-weight: bold;
+    }
+    #game-area {
+        margin: 16px;
+        padding: 16px;
+        box-sizing: border-box;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    #game-frame {
+        width: 800px;
+        height: 450px;
+        max-width: 100%;
+        max-height: 100%;
+    }
+</style>
+{% endblock %}
+{% block content %}
+<div id="app-container">
+    <button id="toggle-btn">&lt;</button>
+    <div id="prompt-area">
+        <h1 style="color: #00d2ff; margin-bottom: 5px;">Alien Cargo 🛸</h1>
+        <p style="color: #aaa; margin-top: 0;">AI-Powered Instant Game Generator</p>
+        <p style="color: #666; font-size: 12px; margin-top: -10px;">Cost: 1 Credit</p>
+        <textarea id="game-desc" placeholder="Describe your game..."></textarea>
+        <button id="create-btn">Create Game</button>
+        <div id="loading" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); color: #00d2ff; flex-direction: column; justify-content: center; align-items: center; z-index: 10;">
+            <h2 id="loading-text" style="margin-bottom: 20px;">Creating Game...</h2>
+            <div id="progress-container" style="width: 80%; max-width: 400px; height: 10px; background: #333; border-radius: 5px; overflow: hidden;">
+                <div id="progress-bar" style="width: 0%; height: 100%; background: #00d2ff; transition: width 0.2s linear;"></div>
+            </div>
+        </div>
+    </div>
+    <div id="game-area" style="display: none;">
+        <iframe id="game-frame" allow="autoplay; fullscreen; pointer-lock" tabindex="0" scrolling="no"></iframe>
+    </div>
+</div>
+<script>
+    const FLASK_API_URL = "/generate_game";
+    let isGameView = false;
+    const toggleBtn = document.getElementById('toggle-btn');
+    const promptArea = document.getElementById('prompt-area');
+    const gameArea = document.getElementById('game-area');
+    const iframe = document.getElementById('game-frame');
+    const createBtn = document.getElementById('create-btn');
+    function updateViewState() {
+        console.log(`UI Event: View state -> Game:${isGameView}`);
+        if (isGameView) {
+            toggleBtn.style.gridRow = '1';
+            toggleBtn.style.gridColumn = '1 / 2';
+            toggleBtn.innerHTML = '&gt;';
+            promptArea.style.display = 'none';
+            gameArea.style.gridRow = '1';
+            gameArea.style.display = 'flex';
+            gameArea.style.gridColumn = '2 / 33';
+            console.log("UI Event: Applied Game View layout (gridRow strictly enforced).");
+        } else {
+            toggleBtn.style.gridRow = '1';
+            toggleBtn.style.gridColumn = '32 / 33';
+            toggleBtn.innerHTML = '&lt;';
+            promptArea.style.gridRow = '1';
+            promptArea.style.display = 'flex';
+            promptArea.style.gridColumn = '1 / 32';
+            gameArea.style.display = 'none';
+            console.log("UI Event: Applied Prompt View layout (gridRow strictly enforced).");
+        }
+    }
+    toggleBtn.addEventListener('click', () => {
+        console.log("UI Event: Toggle button clicked.");
+        isGameView = !isGameView;
+        updateViewState();
+        if (isGameView) {
+            iframe.focus();
+            if (iframe.contentWindow) iframe.contentWindow.focus();
+            console.log("UI Event: Iframe focused via toggle.");
+        }
+    });
+    updateViewState();
+    iframe.onload = () => {
+        console.log("UI Event: Iframe completely loaded.");
+        iframe.focus();
+        if (iframe.contentWindow) iframe.contentWindow.focus();
+    };
+    document.getElementById('game-desc').addEventListener('input', (e) => {
+         console.log(`UI Event: Textarea input modified. Current length: ${e.target.value.length}`);
+    });
+    createBtn.addEventListener('click', async () => {
+        console.log("UI Event: Create button clicked.");
+        const descInput = document.getElementById('game-desc').value.trim();
+        console.log(`Data Event: Input len: ${descInput.length}`);
+        if (!descInput) {
+            console.warn("Validation: Empty description blocked.");
+            alert("Please describe your game!");
+            return;
+        }
+        const loading = document.getElementById('loading');
+        console.log("UI State: Enabling loading overlay.");
+        createBtn.disabled = true;
+        createBtn.innerText = "Generating...";
+        loading.style.display = 'flex';
+        iframe.srcdoc = "";
+        const progressBar = document.getElementById('progress-bar');
+        progressBar.style.width = '0%';
+        let avgTime = parseInt(localStorage.getItem('alien_cargo_avg_time')) || 15000;
+        let startTime = Date.now();
+        console.log(`UI Event: Start progress. Avg: ${avgTime}ms`);
+        let progressInterval = setInterval(() => {
+            let elapsed = Date.now() - startTime;
+            let progress = Math.min(90, (elapsed / avgTime) * 100);
+            progressBar.style.width = `${progress}%`;
+        }, 200);
+        const payload = { description: descInput };
+        console.log("Network Event: POST initiated.");
+        try {
+            const response = await fetch(FLASK_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            console.log(`Network Event: Status ${response.status}`);
+            const data = await response.json();
+            if (!response.ok) {
+                if (response.status === 401) {
+                    window.location.href = "{{ url_for('auth.login') }}";
+                    throw new Error("Redirecting to login...");
+                } else if (response.status === 403) {
+                    window.location.href = "{{ url_for('billing.tiers') }}";
+                    throw new Error("Redirecting to store...");
+                }
+                throw new Error(data.error || `HTTP error: ${response.status}`);
+            }
+            console.log("Data Event: Payload parsed.");
+            clearInterval(progressInterval);
+            progressBar.style.width = '100%';
+            console.log("UI Event: Progress completed.");
+            if (data.duration_ms) {
+                let newAvg = (avgTime + data.duration_ms) / 2;
+                localStorage.setItem('alien_cargo_avg_time', newAvg.toString());
+                console.log(`Storage: Avg updated to ${newAvg}ms.`);
+            }
+            const navCredits = document.getElementById('nav-credits');
+            if(navCredits && data.credits_remaining !== undefined) {
+                navCredits.innerText = data.credits_remaining;
+            }
+            console.log("UI State: Injecting game HTML.");
+            iframe.srcdoc = data.game_html;
+            isGameView = true;
+            updateViewState();
+            setTimeout(() => {
+                iframe.focus();
+                if (iframe.contentWindow) iframe.contentWindow.focus();
+                console.log("UI Event: Auto-focused iframe via timer.");
+            }, 500);
+        } catch (error) {
+            console.error("Error Event: API failed.", error);
+            clearInterval(progressInterval);
+            alert(error.message || "Generation failed. See console.");
+        } finally {
+            console.log("UI State: Restoring interface.");
+            setTimeout(() => {
+                createBtn.disabled = false;
+                createBtn.innerText = "Create Game";
+                loading.style.display = 'none';
+                progressBar.style.width = '0%';
+            }, 500);
+        }
+    });
+</script>
+{% endblock %}
+================================================================================
+
+[-] This file: templates/tiers.html | Contents:
+{% extends "base.html" %}
+{% block head %}
+<style>
+    .tiers-container {
+        display: flex;
+        justify-content: center;
+        gap: 30px;
+        padding: 40px;
+        flex-wrap: wrap;
+    }
+    .tier-card {
+        background: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 30px;
+        width: 280px;
+        text-align: center;
+        transition: transform 0.2s, border-color 0.2s;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    .tier-card:hover {
+        transform: scale(1.03);
+        border-color: #00d2ff;
+    }
+    .tier-card h2 {
+        color: #00d2ff;
+        margin-top: 0;
+    }
+    .tier-card .price {
+        font-size: 32px;
+        font-weight: bold;
+        margin: 20px 0;
+        color: #fff;
+    }
+    .tier-card p {
+        color: #aaa;
+    }
+    .tier-card form {
+        margin-top: 25px;
+    }
+    .buy-btn {
+        background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
+        color: #fff;
+        border: none;
+        padding: 12px 20px;
+        width: 100%;
+        cursor: pointer;
+        font-weight: bold;
+        border-radius: 4px;
+        font-size: 16px;
+    }
+    .buy-btn:hover {
+        background: linear-gradient(135deg, #3a7bd5 0%, #00d2ff 100%);
+    }
+    select {
+        margin-bottom: 20px;
+        width: 100%;
+        padding: 10px;
+        background: #121212;
+        color: white;
+        border: 1px solid #444;
+        border-radius: 4px;
+    }
+</style>
+{% endblock %}
+{% block content %}
+<h1 style="text-align: center; color: #fff; margin-top: 50px;">Select a Credit Package</h1>
+<p style="text-align: center; color: #aaa; margin-bottom: 40px;">Top up your account to generate more games.</p>
+<div class="tiers-container">
+    <div class="tier-card">
+        <h2>Starter</h2>
+        <div class="price">${{ small_package_price }}</div>
+        <p>{{ small_package_amount }} Game Generations</p>
+        <form method="POST" action="{{ url_for('billing.tiers') }}">
+            <input type="hidden" name="package" value="small">
+            <input type="hidden" name="credits" value="{{ small_package_amount }}">
+            <input type="hidden" name="price" value="{{ small_package_price }}">
+            <select name="payment_method">
+                <option value="standard">Credit Card (Stripe)</option>
+                <option value="eth">Ethereum (Crypto)</option>
+            </select>
+            <button type="submit" class="buy-btn">Purchase</button>
+        </form>
+    </div>
+    <div class="tier-card" style="border-color: #3a7bd5;">
+        <h2>Pro</h2>
+        <div class="price">${{ mid_package_price }}</div>
+        <p>{{ mid_package_amount }} Game Generations</p>
+        <form method="POST" action="{{ url_for('billing.tiers') }}">
+            <input type="hidden" name="package" value="mid">
+            <input type="hidden" name="credits" value="{{ mid_package_amount }}">
+            <input type="hidden" name="price" value="{{ mid_package_price }}">
+            <select name="payment_method">
+                <option value="standard">Credit Card (Stripe)</option>
+                <option value="eth">Ethereum (Crypto)</option>
+            </select>
+            <button type="submit" class="buy-btn">Purchase</button>
+        </form>
+    </div>
+    <div class="tier-card">
+        <h2>Master</h2>
+        <div class="price">${{ large_package_price }}</div>
+        <p>{{ large_package_amount }} Game Generations</p>
+        <form method="POST" action="{{ url_for('billing.tiers') }}">
+            <input type="hidden" name="package" value="large">
+            <input type="hidden" name="credits" value="{{ large_package_amount }}">
+            <input type="hidden" name="price" value="{{ large_package_price }}">
+            <select name="payment_method">
+                <option value="standard">Credit Card (Stripe)</option>
+                <option value="eth">Ethereum (Crypto)</option>
+            </select>
+            <button type="submit" class="buy-btn">Purchase</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
 ================================================================================
