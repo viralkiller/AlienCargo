@@ -20,6 +20,7 @@ class SimpleEmail:
             message = 'Invalid email address.'
         self.message = message
         self.regex = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
     def __call__(self, form, field):
         email = field.data or ""
         if not self.regex.match(email):
@@ -44,10 +45,10 @@ auth_bp = Blueprint('auth', __name__)
 def heartbeat():
     """Client polling endpoint for session status."""
     token = session.get('token')
-
     # Fail if missing token.
     if not token or not session.get('email'):
         return jsonify({"status": "expired"}), 401
+
     try:
         # Decode token safely.
         payload = jwt.decode(token, options={"verify_signature": False})
@@ -131,22 +132,36 @@ def login():
                 token = payload.get("token")
                 user_info = payload.get("user", {})
                 username = user_info.get("username")
+                email = user_info.get("email")
 
                 if not token or not username:
                       flash("Login failed: Incomplete data.", "danger")
                       redirect_uri_fail = url_for('auth.handle_login', _external=True)
                       return redirect(f"{LOGINMANAGER_MICROSERVICE_URL}/login-page?redirect_uri={redirect_uri_fail}&domain={current_domain}")
 
+                # FIX: Force fetch the domain-specific credits from the microservice.
+                real_credits = 0
+                try:
+                    cred_req = requests.post(
+                        f"{LOGINMANAGER_MICROSERVICE_URL}/get_credits",
+                        json={"domain": current_domain, "fingerprint": session.get("fingerprint"), "email": email},
+                        timeout=5
+                    )
+                    if cred_req.status_code == 200:
+                        real_credits = cred_req.json().get("credits_remaining", 0)
+                except Exception as e:
+                    current_app.logger.error(f"[auth.login] Failed to fetch true credits: {e}")
+
                 session.update(
                     token=token,
                     user_id=username,
                     username=username,
-                    email=user_info.get("email"),
+                    email=email,
                     last_login=user_info.get("last_login"),
                     domain=current_domain,
                     free_credits=user_info.get("free_credits", 0),
                     purchased_credits=user_info.get("purchased_credits", 0),
-                    credits_remaining=user_info.get("credits_remaining", 0)
+                    credits_remaining=int(float(real_credits))
                 )
                 session.permanent = True
                 flash("Login successful!", "success")
@@ -159,6 +174,7 @@ def login():
                 flash(msg, "danger")
                 redirect_uri_fail = url_for('auth.handle_login', _external=True)
                 return redirect(f"{LOGINMANAGER_MICROSERVICE_URL}/login-page?redirect_uri={redirect_uri_fail}&domain={current_domain}")
+
         except requests.RequestException as e:
             current_app.logger.exception(f"[auth.login] Connection error: {e}")
             flash("Could not connect auth service.", "danger")
@@ -176,6 +192,7 @@ def handle_login():
     if not token:
         flash("Authentication failed: No token.", "danger")
         return redirect(url_for('game.index'))
+
     try:
         resp = requests.get(
             f"{LOGINMANAGER_MICROSERVICE_URL}/protected",
@@ -188,25 +205,41 @@ def handle_login():
 
         user_data = resp.json()
         username = user_data.get("username")
+        email = user_data.get("email")
+        current_domain = request.host.split(":")[0]
 
         if not username:
             flash("Failed to retrieve profile.", "danger")
             return redirect(url_for('game.index'))
 
+        # FIX: Force fetch the domain-specific credits from the microservice.
+        real_credits = 0
+        try:
+            cred_req = requests.post(
+                f"{LOGINMANAGER_MICROSERVICE_URL}/get_credits",
+                json={"domain": current_domain, "fingerprint": session.get("fingerprint"), "email": email},
+                timeout=5
+            )
+            if cred_req.status_code == 200:
+                real_credits = cred_req.json().get("credits_remaining", 0)
+        except Exception as e:
+            current_app.logger.error(f"[auth.handle_login] Failed to fetch true credits: {e}")
+
         session.update(
             token=token,
             user_id=username,
             username=username,
-            email=user_data.get("email"),
+            email=email,
             last_login=user_data.get("last_login"),
-            domain=request.host.split(":")[0],
-            credits_remaining=user_data.get("credits_remaining", 0),
+            domain=current_domain,
             free_credits=user_data.get("free_credits", 0),
             purchased_credits=user_data.get("purchased_credits", 0),
+            credits_remaining=int(float(real_credits))
         )
         session.permanent = True
         flash("Login successful!", "success")
         return redirect(url_for('game.index'))
+
     except requests.RequestException as e:
         current_app.logger.exception(f"[auth.handle_login] Verification error: {e}")
         flash("Could not verify login.", "danger")
@@ -217,6 +250,7 @@ def handle_register():
     """Callback endpoint after registration."""
     success = request.args.get("success", "false").lower() == "true"
     message = request.args.get("message", "")
+
     if success:
         flash(message or "Registration successful!", "success")
         return redirect(url_for('auth.login'))
