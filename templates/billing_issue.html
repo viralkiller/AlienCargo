@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: calc(100vh - 61px); text-align: center; padding: 20px;">
+    <div style="background: #1e1e1e; border: 1px solid #f00; padding: 40px; border-radius: 8px; max-width: 500px; box-shadow: 0 0 20px rgba(255, 0, 0, 0.1);">
+        <h1 style="color: #ff4d4d; margin-top: 0; font-size: 48px;">⚠️</h1>
+        <h2 style="color: #fff; margin-bottom: 20px;">Payment Issue Detected</h2>
+        <p style="color: #aaa; line-height: 1.6; margin-bottom: 30px;">
+            We were unable to verify your transaction status as "COMPLETED." Your payment may still be pending, or the transaction was cancelled.
+        </p>
+        <p style="color: #666; font-size: 14px; margin-bottom: 30px;">
+            No credits have been deducted. If you believe this is an error, please check your bank statement before trying again.
+        </p>
+        <div style="display: flex; gap: 15px; justify-content: center;">
+            <a href="{{ url_for('billing.tiers') }}" style="background: #333; color: #fff; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: bold;">Try Again</a>
+            <a href="{{ url_for('game.index') }}" style="background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%); color: #fff; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: bold;">Back to Home</a>
+        </div>
+    </div>
+</div>
+<script>
+    console.log("UI Event: Rendered billing_issue.html. Payment status failed.");
+</script>
+{% endblock %}

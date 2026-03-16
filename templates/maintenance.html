@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: calc(100vh - 61px); text-align: center; padding: 20px;">
+    <div style="max-width: 600px;">
+        <h1 style="font-size: 64px; margin-bottom: 20px;">🛸</h1>
+        <h1 style="color: #00d2ff; margin-bottom: 10px; font-size: 32px;">System Upgrading</h1>
+        <p style="color: #aaa; font-size: 18px; line-height: 1.6;">
+            The Alien Cargo Mothership is currently undergoing scheduled maintenance to improve our AI game generation engines.
+        </p>
+        <div style="margin: 40px 0;">
+            <div style="height: 4px; width: 100px; background: #3a7bd5; margin: 0 auto; border-radius: 2px; position: relative; overflow: hidden;">
+                <div style="position: absolute; height: 100%; width: 50%; background: #00d2ff; animation: pulse 2s infinite ease-in-out;"></div>
+            </div>
+        </div>
+        <p style="color: #666;">We expect to be back online within the hour. Thank you for your patience.</p>
+    </div>
+</div>
+
+<style>
+    @keyframes pulse {
+        0% { left: -50%; }
+        100% { left: 100%; }
+    }
+</style>
+
+<script>
+    console.log("UI Event: Rendered maintenance.html. System is currently offline.");
+</script>
+{% endblock %}

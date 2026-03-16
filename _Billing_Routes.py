@@ -1,4 +1,4 @@
-# _Billing_Routes.py
+#_Billing_Routes.py
 from flask import (
     Blueprint, request, jsonify, session, current_app, render_template,
     flash, redirect, url_for
@@ -11,46 +11,35 @@ import math
 from collections import OrderedDict
 from urllib.parse import quote
 
-# Helpers.
+# Import utilities.
 from _Utils import (
     get_Subdomain, get_user_ip_and_location, TimeFunctions, detect_Device
 )
 
-# Payment modules.
+# Payment-specific modules.
 from _Purchase_Manager import Purchase_Manager
 from _AESCipher import AESCipher
 
-# -----------------------------------------------------------------------------
-# External endpoints.
-# -----------------------------------------------------------------------------
-LOGINMANAGER_MICROSERVICE_URL = "https://loginmanager.pythonanywhere.com"
+LOGINMANAGER_MICROSERVICE_URL = "[https://loginmanager.pythonanywhere.com](https://loginmanager.pythonanywhere.com)"
 
-# -----------------------------------------------------------------------------
-# Blueprint.
-# -----------------------------------------------------------------------------
 billing_bp = Blueprint("billing", __name__)
 
-# -----------------------------------------------------------------------------
-# Fingerprint proxy endpoint.
 @billing_bp.route("/report_standard", methods=["POST"])
 def report_standard():
-    # Log route entry.
-    current_app.logger.debug("Entering /report_standard route.")
+    """Receives and proxies client fingerprint data."""
     try:
-        # Parse JSON request data.
+        # Parse data securely.
         data = request.get_json(force=True)
         if not data:
-            current_app.logger.warning("No JSON data received.")
-            return jsonify(error="No JSON data received"), 400
+            return jsonify(error="No JSON data."), 400
 
         fingerprint = data.get("fingerprint")
         email = (data.get("email") or "").strip()
         domain = get_Subdomain()
         email_verified = data.get("email_verified", "NA") if email else "NA"
         created_at = data.get("created_at", time.time())
-        current_app.logger.debug(f"Parsed basic data for: {email}")
 
-        # Handle missing extras dict.
+        # Prepare hardware extras.
         raw_extras = data.get("extras")
         if not isinstance(raw_extras, dict):
             raw_extras = {}
@@ -68,23 +57,22 @@ def report_standard():
             )
         )
 
-        # Lookup server IP and location.
+        # Determine actual network location.
         try:
             ip, loc = get_user_ip_and_location()
             extras["ip"], extras["location"] = ip, loc
-            current_app.logger.debug("IP and location lookup successful.")
         except Exception as e:
             current_app.logger.error(f"IP Lookup failed: {e}")
             extras["ip"], extras["location"] = "0.0.0.0", "Lookup Failed"
 
-        # Update user session data.
+        # Update local session.
         if fingerprint:
             session["fingerprint"] = fingerprint
         if email:
             session["email"] = email
         session["extras"] = extras
 
-        # Forward data to microservice.
+        # Dispatch to Identity service.
         payload = {
             "fingerprint": fingerprint,
             "email": email,
@@ -94,189 +82,139 @@ def report_standard():
             "extras": extras,
         }
 
-        # Print to server log.
-        current_app.logger.debug(f"Sending payload to {LOGINMANAGER_MICROSERVICE_URL}...")
-
+        current_app.logger.info(f"Proxying fingerprint payload.")
         r = requests.post(
             f"{LOGINMANAGER_MICROSERVICE_URL}/gather_fingerprint_data",
             json=payload,
             timeout=10,
         )
         r.raise_for_status()
-
-        current_app.logger.info("Successfully reported fingerprint data.")
         return jsonify(remote_response=r.json()), 200
 
     except requests.exceptions.RequestException as re:
-        # Catch connection errors.
-        current_app.logger.error(f"External Connection Error: {re}")
-        return jsonify(error=f"Connection to LoginManager failed: {str(re)}"), 502
-
+        current_app.logger.error(f"Proxy Connection Error: {re}")
+        return jsonify(error=f"LoginManager failed: {str(re)}"), 502
     except Exception as exc:
-        # Catch general code errors.
-        current_app.logger.exception("report_standard crashed")
-        # Return error to browser.
+        current_app.logger.exception("Proxy logic crashed.")
         return jsonify(error=f"Server Error: {str(exc)}"), 500
 
-# -----------------------------------------------------------------------------
-# Credit usage reporting.
-# -----------------------------------------------------------------------------
 @billing_bp.route("/report_credit_usage", methods=["POST"])
 def report_credit_usage():
-    # Log route entry.
-    current_app.logger.debug("Entering /report_credit_usage route.")
+    """Logs client credit usage."""
     try:
         data = request.get_json(force=True, silent=True) or {}
         amount = data.get('amount', 0)
         user_id = session.get("email") or "Unknown"
 
-        # Log frontend usage report.
-        current_app.logger.info(f"--- [BILLING] Credit Usage Reported (Frontend) ---")
-        current_app.logger.info(f"User: {user_id} | Amount: {amount}")
-
-        # Return success to frontend.
+        # Log basic usage tracking.
+        current_app.logger.info(f"[BILLING] Usage Reported: {user_id} - {amount}")
         return jsonify({"status": "success", "message": "Usage logged"}), 200
-
     except Exception as e:
-        current_app.logger.error(f"!!! [BILLING ERROR] Failed to report usage: {e}")
+        current_app.logger.error(f"[BILLING] Failed logging usage: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# -----------------------------------------------------------------------------
-# Credit lookup.
-# -----------------------------------------------------------------------------
 @billing_bp.route("/get_credits", methods=["POST"])
 def get_credits():
-    # Log route entry.
-    current_app.logger.debug("Entering /get_credits route.")
+    """Retrieves authoritative credit balance."""
     data = request.get_json(force=True, silent=True) or {}
 
-    # Use trusted session fingerprint.
-    # Prevent cross-user balance querying.
+    # Priority check for fingerprint.
     fingerprint = session.get("fingerprint") or data.get("fingerprint")
     email = session.get("email") or data.get("email", "")
 
     if not fingerprint:
-        current_app.logger.warning("Missing fingerprint in /get_credits.")
-        return jsonify(error="Missing fingerprint"), 400
+        return jsonify(error="Missing fingerprint."), 400
 
-    # Refresh session fingerprint.
+    # Store missing fingerprint.
     if not session.get("fingerprint"):
         session["fingerprint"] = fingerprint
 
     payload = {"domain": get_Subdomain(), "fingerprint": fingerprint, "email": email}
 
     try:
-        current_app.logger.debug("Requesting credits from LoginManager.")
         r = requests.post(
             f"{LOGINMANAGER_MICROSERVICE_URL}/get_credits", json=payload, timeout=5
         )
         r.raise_for_status()
         credits = r.json().get("credits_remaining", 0)
-
-        current_app.logger.info(f"Fetched credits successfully: {credits}")
-        # Return integer credit value.
+        # Ensure integer output.
         return jsonify(credits_remaining=int(float(credits))), 200
-
     except Exception as exc:
-        current_app.logger.error("get_credits failed: %s", exc)
-        return jsonify(error="Unable to fetch credits"), 502
+        current_app.logger.error("Credit fetch failed: %s", exc)
+        return jsonify(error="Unable to fetch credits."), 502
 
-# -----------------------------------------------------------------------------
-# Pricing and tiers.
-# -----------------------------------------------------------------------------
 def handle_standard_payment(tid, price, email):
+    # Formats Stripe link.
     subdomain = get_Subdomain()
     encoded_email = quote(email, safe="")
-    current_app.logger.debug("Generated standard payment URL.")
-    return f"https://stripegateway.pythonanywhere.com/process/{subdomain}/{tid}/{price}/{encoded_email}"
+    return f"[https://stripegateway.pythonanywhere.com/process/](https://stripegateway.pythonanywhere.com/process/){subdomain}/{tid}/{price}/{encoded_email}"
 
 def handle_eth_payment(tid, price, email):
+    # Formats Ethereum link.
     subdomain = get_Subdomain()
     encoded_email = quote(email, safe="")
-    current_app.logger.debug("Generated ETH payment URL.")
-    return f"https://cryptgateway.pythonanywhere.com/process/{subdomain}/{tid}/{price}/{encoded_email}"
+    return f"[https://cryptgateway.pythonanywhere.com/process/](https://cryptgateway.pythonanywhere.com/process/){subdomain}/{tid}/{price}/{encoded_email}"
 
 def clean_stale_transactions(pending_txs, timeout_seconds=1800):
-    # Helper to clean stale transactions.
-    # Prevents session cookie overflow.
+    """Purges expired transactions from dictionary."""
     if not pending_txs:
         return pending_txs
-
     now = time.time()
-    # List keys to remove.
     to_remove = [k for k, v in pending_txs.items() if now - v.get("created_at", 0) > timeout_seconds]
-
     for k in to_remove:
-        # Safely remove dictionary key.
         del pending_txs[k]
-
     if to_remove:
-        current_app.logger.info(f"[Billing] Garbage Collection: Removed {len(to_remove)} stale transactions.")
-
+        current_app.logger.info(f"Garbage Collection: Purged {len(to_remove)} stales.")
     return pending_txs
 
 @billing_bp.route("/tiers", methods=["GET", "POST"])
 def tiers():
-    # Log route entry.
-    current_app.logger.debug("Entering /tiers route.")
-    # Preserve email character casing.
+    # Process user tiers.
     email = session.get("email", "").strip()
     device = detect_Device(request.headers.get("User-Agent"))
 
-    # Credit amounts and prices.
     sa, ma, la = 10, 50, 100
     sp, mp, lp = "2.00", "5.00", "9.00"
 
     if request.method == "POST":
-        current_app.logger.debug("Processing POST request for tiers.")
-        # Strict session verification check.
+        # Block unauthorized transactions.
         if not email:
-            current_app.logger.warning("[Billing] Blocked purchase attempt with expired session/empty email.")
-            flash("Your session has expired. Please log in again to purchase credits.", "danger")
+            current_app.logger.warning("Blocked purchase: missing email.")
+            flash("Session expired. Log in.", "danger")
             return redirect(url_for('auth.login'))
 
         pm = request.form.get("payment_method")
         pk = request.form["package"]
-
-        # Cast credits to integer.
-        cr = int(float(request.form["credits"]))
+        cr = float(request.form["credits"])
         pr = request.form["price"]
         tid = str(uuid.uuid4())
 
-        # Store transaction details securely.
-        # Prevent tab switching exploit.
+        # Retrieve pending states.
         pending_txs = session.get("pending_transactions", {})
-
-        # Run garbage collection first.
         pending_txs = clean_stale_transactions(pending_txs)
 
         pending_txs[tid] = {
             "credits": cr,
-            "price": pr, # Persist accurate financial price.
+            "price": pr,
             "payment_method": pm,
             "created_at": time.time()
         }
         session["pending_transactions"] = pending_txs
 
-        current_app.logger.info(f"Initiating transaction {tid} for {cr} credits via {pm}")
+        current_app.logger.info(f"Init {tid} for {cr} credits via {pm}")
 
         if pm == "standard":
             payment_url = handle_standard_payment(tid, pr, email)
         elif pm == "eth":
             payment_url = handle_eth_payment(tid, pr, email)
         else:
-            current_app.logger.warning("Invalid payment method selected.")
-            flash("Invalid payment method selected.")
+            flash("Invalid method selected.")
             return redirect(url_for("billing.tiers"))
 
-        if email in [
-            "jules3313@gmail.com",
-            "tmnt2017@gmail.com",
-            "secrino7@yahoo.com",
-        ]:
+        # Admin sandbox accounts.
+        if email in ["jules3313@gmail.com", "tmnt2017@gmail.com", "secrino7@yahoo.com"]:
             payment_url += "&test_mode=true" if "?" in payment_url else "?test_mode=true"
 
-        current_app.logger.debug(f"Redirecting to payment URL: {payment_url}")
         return redirect(payment_url)
 
     return render_template(
@@ -291,13 +229,9 @@ def tiers():
         large_package_price=lp,
     )
 
-# -----------------------------------------------------------------------------
-# Finalize post-payment redirects.
-# -----------------------------------------------------------------------------
 @billing_bp.route("/final/<transaction_id>/<status>", methods=["GET", "POST"])
 def final(transaction_id, status):
-    # Log route entry.
-    current_app.logger.debug(f"Entering /final route for TX: {transaction_id}")
+    # Verify returning payment callbacks.
     purchase_manager = Purchase_Manager()
     email = session.get("email")
     domain = get_Subdomain()
@@ -306,34 +240,30 @@ def final(transaction_id, status):
         shop_key = current_app.config["SHOP_KEY"]
         cipher = AESCipher(shop_key)
         decrypted_status = cipher.decrypt_with_timecheck(status)
-        current_app.logger.info("[final] Decrypted status: %s", decrypted_status)
+        current_app.logger.info(f"Decrypted status: {decrypted_status}")
     except Exception as e:
-        current_app.logger.exception("[final] Failed to decrypt status token: %s", e)
-        return redirect(url_for("index"))
+        current_app.logger.exception(f"Decryption failed: {e}")
+        return redirect(url_for("game.index"))
 
     if not session.get("token"):
-        current_app.logger.warning("[final] User not authenticated. Aborting.")
-        # Redirect to home fallback.
-        return redirect(url_for("index"))
+        current_app.logger.warning("Unauthenticated callback aborted.")
+        return redirect(url_for("game.index"))
 
     try:
         if decrypted_status == "COMPLETED":
-            # Retrieve specific transaction details.
             pending_txs = session.get("pending_transactions", {})
             tx_data = pending_txs.get(transaction_id)
 
             if not tx_data:
-                current_app.logger.error(f"[final] Transaction {transaction_id} not found in pending list. Possible replay or invalid ID.")
-                flash("Transaction details missing or expired. Please contact support.", "error")
-                return redirect(url_for("index"))
+                current_app.logger.error(f"Transaction {transaction_id} not found.")
+                flash("Transaction details missing.", "error")
+                return redirect(url_for("game.index"))
 
-            # Use stored credit amount.
             purchased_credits = tx_data.get("credits")
-            amount_paid = tx_data.get("price") # Retrieve actual paid price.
+            amount_paid = tx_data.get("price")
             payment_method = tx_data.get("payment_method", "Stripe")
             username = session.get("username")
 
-            current_app.logger.debug("Processing payment via Purchase_Manager.")
             success, _ = purchase_manager.process_payment(
                 username=username,
                 transaction_id=transaction_id,
@@ -341,38 +271,26 @@ def final(transaction_id, status):
                 email=email,
                 domain=domain,
                 credits_bought=purchased_credits,
-                amount=amount_paid, # Pass price to manager.
+                amount=amount_paid,
                 method=payment_method,
             )
 
             if not success:
-                current_app.logger.error(
-                    "Credit update via LoginManager failed after successful payment."
-                )
-                flash(
-                    "Your payment was successful, but there was an issue adding credits. Please contact support.",
-                    "error",
-                )
-                return redirect(url_for("index"))
+                current_app.logger.error("Credit update failed post-payment.")
+                flash("Purchase succeeded, but credit allocation failed.", "error")
+                return redirect(url_for("game.index"))
 
-            # Remove transaction to secure.
+            # Pop transaction.
             pending_txs.pop(transaction_id, None)
             session["pending_transactions"] = pending_txs
-
-            current_app.logger.info("Purchase completed successfully.")
-            flash("Purchase successful! Your credits have been added.", "success")
+            flash("Credits added successfully!", "success")
         else:
-            current_app.logger.info(
-                "Payment status was '%s', not 'COMPLETED'. Redirecting to billing issue page.",
-                decrypted_status,
-            )
+            current_app.logger.info(f"Incomplete status: {decrypted_status}")
             return render_template("billing_issue.html")
 
     except Exception as e:
-        current_app.logger.exception(
-            "[final] Unexpected error during payment processing: %s", e
-        )
-        flash("An unexpected error occurred. Please contact support.", "error")
-        return redirect(url_for("index"))
+        current_app.logger.exception(f"Unexpected processing error: {e}")
+        flash("Unexpected error occurred.", "error")
+        return redirect(url_for("game.index"))
 
-    return redirect(url_for("index"))
+    return redirect(url_for("game.index"))

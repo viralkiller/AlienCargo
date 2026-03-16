@@ -212,6 +212,9 @@ Combat should feel deliberately heavy, clunky, and desperate. Use simple placeho
 If the game appears to be something that does not fit the aforementioned experts, then generate something you see fit.
 
 
+[LoginManager]
+LoginManager is an external microservice that handles user reg/login/jwt and credit management for ecosystem of our various external websites.
+Alien Cargo users get 5 free pre-reg and 5 free post-reg credits after which they must purchase more via tiers.html
 
 
 

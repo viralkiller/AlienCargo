@@ -74,11 +74,12 @@
         <h2>Starter</h2>
         <div class="price">${{ small_package_price }}</div>
         <p>{{ small_package_amount }} Game Generations</p>
-        <form method="POST" action="{{ url_for('billing.tiers') }}">
+        <form class="tier-form" method="POST" action="{{ url_for('billing.tiers') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
             <input type="hidden" name="package" value="small">
             <input type="hidden" name="credits" value="{{ small_package_amount }}">
             <input type="hidden" name="price" value="{{ small_package_price }}">
-            <select name="payment_method">
+            <select name="payment_method" class="payment-method-select">
                 <option value="standard">Credit Card (Stripe)</option>
                 <option value="eth">Ethereum (Crypto)</option>
             </select>
@@ -90,11 +91,12 @@
         <h2>Pro</h2>
         <div class="price">${{ mid_package_price }}</div>
         <p>{{ mid_package_amount }} Game Generations</p>
-        <form method="POST" action="{{ url_for('billing.tiers') }}">
+        <form class="tier-form" method="POST" action="{{ url_for('billing.tiers') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
             <input type="hidden" name="package" value="mid">
             <input type="hidden" name="credits" value="{{ mid_package_amount }}">
             <input type="hidden" name="price" value="{{ mid_package_price }}">
-            <select name="payment_method">
+            <select name="payment_method" class="payment-method-select">
                 <option value="standard">Credit Card (Stripe)</option>
                 <option value="eth">Ethereum (Crypto)</option>
             </select>
@@ -106,11 +108,12 @@
         <h2>Master</h2>
         <div class="price">${{ large_package_price }}</div>
         <p>{{ large_package_amount }} Game Generations</p>
-        <form method="POST" action="{{ url_for('billing.tiers') }}">
+        <form class="tier-form" method="POST" action="{{ url_for('billing.tiers') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
             <input type="hidden" name="package" value="large">
             <input type="hidden" name="credits" value="{{ large_package_amount }}">
             <input type="hidden" name="price" value="{{ large_package_price }}">
-            <select name="payment_method">
+            <select name="payment_method" class="payment-method-select">
                 <option value="standard">Credit Card (Stripe)</option>
                 <option value="eth">Ethereum (Crypto)</option>
             </select>
@@ -118,4 +121,27 @@
         </form>
     </div>
 </div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", () => {
+        // Log payment method selections.
+        const selects = document.querySelectorAll('.payment-method-select');
+        selects.forEach(select => {
+            select.addEventListener('change', (e) => {
+                const packageType = e.target.closest('form').querySelector('input[name="package"]').value;
+                console.log(`UI Event: Selected payment method '${e.target.value}' for package '${packageType}'`);
+            });
+        });
+
+        // Log purchase form submissions.
+        const forms = document.querySelectorAll('.tier-form');
+        forms.forEach(form => {
+            form.addEventListener('submit', (e) => {
+                const packageType = form.querySelector('input[name="package"]').value;
+                const paymentMethod = form.querySelector('select[name="payment_method"]').value;
+                console.log(`UI Event: Purchase button clicked for package '${packageType}' via '${paymentMethod}'`);
+            });
+        });
+    });
+</script>
 {% endblock %}

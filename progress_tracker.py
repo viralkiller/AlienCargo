@@ -1,12 +1,15 @@
 import os
 import json
 import logging
+from _Utils import acquire_lock, release_lock
 
 # Setup basic logging configuration.
 logging.basicConfig(level=logging.DEBUG)
 
 # Define local storage path.
 STORAGE_FILE = "generation_times.json"
+LOCK_FILE = STORAGE_FILE + ".lock"
+MAX_SAMPLES = 50
 
 def load_times():
     # Check if storage file exists.
@@ -33,23 +36,34 @@ def save_time(duration_ms):
     # Log save request.
     logging.debug(f"Saving new duration: {duration_ms}ms")
 
-    # Load existing time records.
-    times = load_times()
+    # Acquire cross-process lock.
+    if acquire_lock(LOCK_FILE):
+        try:
+            # Load existing time records.
+            times = load_times()
 
-    # Append new duration.
-    times.append(duration_ms)
-    logging.debug("Appended duration to list.")
+            # Append new duration.
+            times.append(duration_ms)
 
-    try:
-        # Write list to JSON file.
-        logging.debug("Opening file for writing.")
-        with open(STORAGE_FILE, 'w') as f:
-            json.dump(times, f)
-        # Log successful write.
-        logging.info("Successfully saved times to disk.")
-    except Exception as e:
-        # Log write error.
-        logging.error(f"Error writing file: {e}")
+            # Cap array size to prevent bloat.
+            times = times[-MAX_SAMPLES:]
+            logging.debug("Appended duration to list.")
+
+            try:
+                # Write list to JSON file.
+                logging.debug("Opening file for writing.")
+                with open(STORAGE_FILE, 'w') as f:
+                    json.dump(times, f)
+                # Log successful write.
+                logging.info("Successfully saved times to disk.")
+            except Exception as e:
+                # Log write error.
+                logging.error(f"Error writing file: {e}")
+        finally:
+            # Ensure lock is released.
+            release_lock(LOCK_FILE)
+    else:
+        logging.error("Failed to acquire lock for saving.")
 
 def get_average_time():
     # Log average calculation request.
