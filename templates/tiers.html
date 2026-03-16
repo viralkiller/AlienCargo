@@ -2,125 +2,253 @@
 
 {% block head %}
 <style>
-    .tiers-container {
+    /* Alien Cargo Themed CSS Variables (Adapted from Jurassic Rage) */
+    :root {
+        --bg-primary: #000000;
+        --card-bg: #151515;
+        --text-color: #F8F8F8;
+        --accent-color: #00d2ff; /* Alien Cargo Blue */
+        --accent-text-color: #000000;
+        --key-bg: #1e1e1e; /* Space Grey */
+        --key-border: #333333;
+        --muted-text: #aaaaaa;
+        --error-bg: #331A1A;
+        --error-border: #8B0000;
+        --font-family: 'Nunito', system-ui, sans-serif;
+        --space-8: 0.5rem;
+        --space-16: 1rem;
+        --space-24: 1.5rem;
+        --space-32: 2rem;
+    }
+
+    *, *::before, *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
+
+    body {
+        font-family: var(--font-family);
+        background-color: var(--bg-primary);
+        color: var(--text-color);
+        min-height: 100svh;
+        overflow-y: auto;
+    }
+
+    .master-container-tiers {
         display: flex;
+        align-items: center;
         justify-content: center;
-        gap: 30px;
-        padding: 40px;
-        flex-wrap: wrap;
-    }
-    .tier-card {
-        background: #1e1e1e;
-        border: 1px solid #333;
-        border-radius: 8px;
-        padding: 30px;
-        width: 280px;
-        text-align: center;
-        transition: transform 0.2s, border-color 0.2s;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    }
-    .tier-card:hover {
-        transform: scale(1.03);
-        border-color: #00d2ff;
-    }
-    .tier-card h2 {
-        color: #00d2ff;
-        margin-top: 0;
-    }
-    .tier-card .price {
-        font-size: 32px;
-        font-weight: bold;
-        margin: 20px 0;
-        color: #fff;
-    }
-    .tier-card p {
-        color: #aaa;
-    }
-    .tier-card form {
-        margin-top: 25px;
-    }
-    .buy-btn {
-        background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
-        color: #fff;
-        border: none;
-        padding: 12px 20px;
         width: 100%;
-        cursor: pointer;
-        font-weight: bold;
-        border-radius: 4px;
-        font-size: 16px;
+        min-height: calc(100svh - 48px); /* Account for top nav */
+        padding: var(--space-16);
+        margin-top: 48px;
     }
-    .buy-btn:hover {
-        background: linear-gradient(135deg, #3a7bd5 0%, #00d2ff 100%);
+
+    .page-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--space-32);
+        max-width: 1200px;
+        margin-inline: auto;
     }
+
+    /* Page Header */
+    .page-header {
+        color: var(--text-color);
+        text-align: center;
+    }
+    .page-header h1 {
+        font-size: 2.8rem;
+        font-weight: 800;
+        margin-bottom: var(--space-8);
+        color: var(--accent-color);
+        text-shadow: 0 0 10px rgba(0, 210, 255, 0.4);
+    }
+    .page-header p {
+        color: var(--muted-text);
+        font-size: 1.1rem;
+    }
+
+    .packages-container {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: var(--space-24);
+        width: 100%;
+    }
+
+    /* Individual Package Card */
+    .package {
+        background-color: var(--card-bg);
+        border: 1px solid var(--key-border);
+        border-radius: var(--space-8);
+        padding: var(--space-24);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+        text-align: center;
+        flex: 1 1 300px;
+        max-width: 350px;
+    }
+
+    .package form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-16);
+        height: 100%;
+    }
+
+    .package form span:first-of-type {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--text-color);
+    }
+
+    .package form span:nth-of-type(2) {
+        font-size: 2.2rem;
+        font-weight: 800;
+        color: var(--accent-color);
+        margin-bottom: var(--space-8);
+    }
+
     select {
-        margin-bottom: 20px;
+        margin-bottom: 10px;
         width: 100%;
         padding: 10px;
         background: #121212;
         color: white;
         border: 1px solid #444;
         border-radius: 4px;
+        font-family: var(--font-family);
+        font-size: 1rem;
+    }
+
+    .button-group {
+        margin-top: auto;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-8);
+    }
+
+    /* Buttons */
+    .btn {
+        padding-block: var(--space-16);
+        padding-inline: var(--space-16);
+        font-size: 1rem;
+        font-weight: 800;
+        border-radius: var(--space-8);
+        border: none;
+        cursor: pointer;
+        transition: transform 0.2s, background-color 0.2s;
+    }
+    .btn:active {
+        transform: scale(0.98);
+    }
+    .btn-primary {
+        background-color: var(--accent-color);
+        color: var(--accent-text-color);
+    }
+    .btn-primary:hover {
+        background-color: color-mix(in srgb, var(--accent-color) 85%, black);
+    }
+
+    /* Test Mode Banner */
+    .test-mode-banner {
+        background-color: var(--error-bg);
+        border: 2px solid var(--error-border);
+        padding: var(--space-16);
+        border-radius: var(--space-8);
+        color: var(--text-color);
+        text-align: center;
+        width: 100%;
+        max-width: 600px;
+    }
+    .test-mode-banner strong {
+        color: var(--accent-color);
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<h1 style="text-align: center; color: #fff; margin-top: 50px;">Select a Credit Package</h1>
-<p style="text-align: center; color: #aaa; margin-bottom: 40px;">Top up your account to generate more games.</p>
+<main class="master-container-tiers">
+    <div class="page-content">
+        <header class="page-header">
+            <h1>Insert Coins</h1>
+            <p>Top up your account to generate more games.</p>
+        </header>
 
-<div class="tiers-container">
-    <div class="tier-card">
-        <h2>Starter</h2>
-        <div class="price">${{ small_package_price }}</div>
-        <p>{{ small_package_amount }} Game Generations</p>
-        <form class="tier-form" method="POST" action="{{ url_for('billing.tiers') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
-            <input type="hidden" name="package" value="small">
-            <input type="hidden" name="credits" value="{{ small_package_amount }}">
-            <input type="hidden" name="price" value="{{ small_package_price }}">
-            <select name="payment_method" class="payment-method-select">
-                <option value="standard">Credit Card (Stripe)</option>
-                <option value="eth">Ethereum (Crypto)</option>
-            </select>
-            <button type="submit" class="buy-btn">Purchase</button>
-        </form>
-    </div>
+        {% if email|lower in ['jules3313@gmail.com', 'tmnt2017@gmail.com', 'secrino7@yahoo.com'] %}
+        <div class="test-mode-banner">
+            <strong>Test Mode Active:</strong> You are logged in as a test user. All purchases will use test mode.
+        </div>
+        {% endif %}
 
-    <div class="tier-card" style="border-color: #3a7bd5;">
-        <h2>Pro</h2>
-        <div class="price">${{ mid_package_price }}</div>
-        <p>{{ mid_package_amount }} Game Generations</p>
-        <form class="tier-form" method="POST" action="{{ url_for('billing.tiers') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
-            <input type="hidden" name="package" value="mid">
-            <input type="hidden" name="credits" value="{{ mid_package_amount }}">
-            <input type="hidden" name="price" value="{{ mid_package_price }}">
-            <select name="payment_method" class="payment-method-select">
-                <option value="standard">Credit Card (Stripe)</option>
-                <option value="eth">Ethereum (Crypto)</option>
-            </select>
-            <button type="submit" class="buy-btn">Purchase</button>
-        </form>
-    </div>
+        <section class="packages-container">
+            <div class="package">
+                <form class="tier-form" action="{{ url_for('billing.tiers') }}" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                    <input type="hidden" name="package" value="Starter">
+                    <input type="hidden" name="credits" value="{{ small_package_amount }}">
+                    <input type="hidden" name="price" value="{{ small_package_price }}">
 
-    <div class="tier-card">
-        <h2>Master</h2>
-        <div class="price">${{ large_package_price }}</div>
-        <p>{{ large_package_amount }} Game Generations</p>
-        <form class="tier-form" method="POST" action="{{ url_for('billing.tiers') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
-            <input type="hidden" name="package" value="large">
-            <input type="hidden" name="credits" value="{{ large_package_amount }}">
-            <input type="hidden" name="price" value="{{ large_package_price }}">
-            <select name="payment_method" class="payment-method-select">
-                <option value="standard">Credit Card (Stripe)</option>
-                <option value="eth">Ethereum (Crypto)</option>
-            </select>
-            <button type="submit" class="buy-btn">Purchase</button>
-        </form>
+                    <span><b>{{ small_package_amount }} Game Generations</b></span>
+                    <span>${{ small_package_price }}</span>
+
+                    <select name="payment_method" class="payment-method-select">
+                        <option value="standard">Credit Card (Stripe)</option>
+                        <option value="eth">Ethereum (Crypto)</option>
+                    </select>
+
+                    <div class="button-group">
+                        <button type="submit" class="btn btn-primary" aria-label="Buy Starter Package">Purchase Package</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="package" style="border-color: var(--accent-color);">
+                <form class="tier-form" action="{{ url_for('billing.tiers') }}" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                    <input type="hidden" name="package" value="Pro">
+                    <input type="hidden" name="credits" value="{{ mid_package_amount }}">
+                    <input type="hidden" name="price" value="{{ mid_package_price }}">
+
+                    <span><b>{{ mid_package_amount }} Game Generations</b></span>
+                    <span>${{ mid_package_price }}</span>
+
+                    <select name="payment_method" class="payment-method-select">
+                        <option value="standard">Credit Card (Stripe)</option>
+                        <option value="eth">Ethereum (Crypto)</option>
+                    </select>
+
+                    <div class="button-group">
+                        <button type="submit" class="btn btn-primary" aria-label="Buy Pro Package">Purchase Package</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="package">
+                <form class="tier-form" action="{{ url_for('billing.tiers') }}" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                    <input type="hidden" name="package" value="Master">
+                    <input type="hidden" name="credits" value="{{ large_package_amount }}">
+                    <input type="hidden" name="price" value="{{ large_package_price }}">
+
+                    <span><b>{{ large_package_amount }} Game Generations</b></span>
+                    <span>${{ large_package_price }}</span>
+
+                    <select name="payment_method" class="payment-method-select">
+                        <option value="standard">Credit Card (Stripe)</option>
+                        <option value="eth">Ethereum (Crypto)</option>
+                    </select>
+
+                    <div class="button-group">
+                        <button type="submit" class="btn btn-primary" aria-label="Buy Master Package">Purchase Package</button>
+                    </div>
+                </form>
+            </div>
+        </section>
     </div>
-</div>
+</main>
 
 <script>
     document.addEventListener("DOMContentLoaded", () => {

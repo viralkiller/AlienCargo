@@ -1,4 +1,4 @@
-Aggregated on: 2026-03-16 10:42:22
+Aggregated on: 2026-03-16 11:12:15
 ================================================================================
 Project Directory Tree:
 /
@@ -8,6 +8,7 @@ Project Directory Tree:
 │   ├── images
 │   ├── js
 │   ├── json
+│   │   ├── blog_data
 │   │   ├── determine_game_type.json
 │   │   ├── fighting_finalfight.json
 │   │   ├── fighting_streetfighter.json
@@ -44,6 +45,7 @@ Project Directory Tree:
 ├── _Auth.py
 ├── _Billing_Routes.py
 ├── _Blog_Functions.py
+├── _Game.py
 ├── _Purchase_Manager.py
 ├── _Review_Functions.py
 ├── _Shared.py
@@ -56,7 +58,7 @@ Project Directory Tree:
 ├── project_directory_full_code_1.txt
 └── README.txt
 
-12 directories, 41 files
+13 directories, 42 files
 ================================================================================
 
 [-] This file: .pythonstartup.py | Contents:
@@ -140,8 +142,8 @@ if __name__ == "__main__":
 # _Auth.py
 import os
 import re
-import jwt  # [ADDED] Required for decoding token expiry
-import time # [ADDED] Required for checking timestamps
+import jwt
+import time
 from flask import (
     Blueprint, render_template, request, redirect,
     url_for, flash, session, current_app, make_response, jsonify
@@ -174,53 +176,45 @@ class LoginForm(FlaskForm):
     password = PasswordField('Password', validators=[DataRequired()])
     submit = SubmitField('Sign In')
 auth_bp = Blueprint('auth', __name__)
-# [REVISED HEARTBEAT FUNCTION]
 @auth_bp.route('/heartbeat', methods=['GET'])
 def heartbeat():
-    """
-    Client-side polling endpoint to verify if the session is still active.
-    Now checks the actual JWT expiration timestamp.
-    """
+    """Client polling endpoint for session status."""
     token = session.get('token')
-    # 1. Immediate fail if no token exists
+    # Fail if missing token.
     if not token or not session.get('email'):
         return jsonify({"status": "expired"}), 401
     try:
-        # 2. Decode the token to find the expiration time ('exp')
-        # We use verify_signature=False because we trust the LoginManager
-        # (and likely don't have the secret key locally).
-        # This is safe for a UI-only check.
+        # Decode token safely.
         payload = jwt.decode(token, options={"verify_signature": False})
         exp = payload.get('exp')
-        # 3. Check if token has expired
+        # Check token expiration.
         if exp and time.time() > exp:
-            current_app.logger.info(f"[Heartbeat] Token expired for {session.get('username')}. Clearing session.")
-            session.clear() # CRITICAL: This kills the Flask session
+            current_app.logger.info(f"[Heartbeat] Token expired. Clearing session.")
+            session.clear()
             response = jsonify({"status": "expired"})
             status_code = 401
         else:
             response = jsonify({"status": "active", "user": session.get('username')})
             status_code = 200
     except jwt.DecodeError:
-        current_app.logger.warning("[Heartbeat] Invalid token format. Clearing session.")
+        current_app.logger.warning("[Heartbeat] Invalid token. Clearing session.")
         session.clear()
         response = jsonify({"status": "invalid"})
         status_code = 401
     except Exception as e:
-        current_app.logger.error(f"[Heartbeat] Error checking token: {e}")
-        # Default to keeping session alive if check fails to avoid annoying logouts on blips
+        current_app.logger.error(f"[Heartbeat] Token error: {e}")
         response = jsonify({"status": "active", "user": session.get('username')})
         status_code = 200
-    # Force browser to never cache this response
+    # Prevent caching responses.
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response, status_code
 @auth_bp.route('/register', methods=['GET', 'POST'])
 def register():
-    """Handles user registration, redirecting to LoginManager hosted page."""
+    """Redirects to LoginManager registration."""
     current_domain = request.host.split(':')[0]
-    # Check for maintenance mode
+    # Check maintenance mode.
     maintenance_mode = os.getenv("MAINTENANCE_MODE", "False").lower() in ("true", "1", "yes")
     if maintenance_mode:
         current_app.logger.info("[auth.register] Maintenance mode active.")
@@ -228,23 +222,23 @@ def register():
     redirect_uri = url_for('auth.handle_register', _external=True)
     lm_url = f"{LOGINMANAGER_MICROSERVICE_URL}/register-page"
     register_url = f"{lm_url}?redirect_uri={redirect_uri}&domain={current_domain}"
-    current_app.logger.info(f"[auth.register] Redirecting to: {register_url}")
+    current_app.logger.info(f"[auth.register] Redirecting: {register_url}")
     return redirect(register_url)
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    """Handles user login, redirecting to LoginManager hosted page."""
+    """Redirects to LoginManager authentication."""
     form = LoginForm()
     current_domain = request.host.split(':')[0]
-    # Redirect GET requests to hosted login
+    # Forward GET requests.
     if request.method == 'GET':
         redirect_uri = url_for('auth.handle_login', _external=True)
         lm_login_url = (
             f"{LOGINMANAGER_MICROSERVICE_URL}/login-page"
             f"?redirect_uri={redirect_uri}&domain={current_domain}"
         )
-        current_app.logger.info(f"[auth.login] Redirecting to: {lm_login_url}")
+        current_app.logger.info(f"[auth.login] Redirecting: {lm_login_url}")
         return redirect(lm_login_url)
-    # Legacy/Direct POST handling (if needed)
+    # Handle direct POST.
     if form.validate_on_submit():
         data = {
             "email": form.email.data,
@@ -264,7 +258,7 @@ def login():
                 user_info = payload.get("user", {})
                 username = user_info.get("username")
                 if not token or not username:
-                      flash("Login failed: Incomplete data from auth service.", "danger")
+                      flash("Login failed: Incomplete data.", "danger")
                       redirect_uri_fail = url_for('auth.handle_login', _external=True)
                       return redirect(f"{LOGINMANAGER_MICROSERVICE_URL}/login-page?redirect_uri={redirect_uri_fail}&domain={current_domain}")
                 session.update(
@@ -280,31 +274,31 @@ def login():
                 )
                 session.permanent = True
                 flash("Login successful!", "success")
-                return redirect(url_for('index'))
+                return redirect(url_for('game.index'))
             else:
                 try:
                     msg = resp.json().get("message", "Login failed.")
                 except ValueError:
-                    msg = "Login failed: Invalid response from auth service."
+                    msg = "Login failed: Invalid response."
                 flash(msg, "danger")
                 redirect_uri_fail = url_for('auth.handle_login', _external=True)
                 return redirect(f"{LOGINMANAGER_MICROSERVICE_URL}/login-page?redirect_uri={redirect_uri_fail}&domain={current_domain}")
         except requests.RequestException as e:
-            current_app.logger.exception(f"[auth.login] Connection failed: {e}")
-            flash("Could not connect to login service.", "danger")
+            current_app.logger.exception(f"[auth.login] Connection error: {e}")
+            flash("Could not connect auth service.", "danger")
             redirect_uri_fail = url_for('auth.handle_login', _external=True)
             return redirect(f"{LOGINMANAGER_MICROSERVICE_URL}/login-page?redirect_uri={redirect_uri_fail}&domain={current_domain}")
     else:
-        flash("Invalid email or password format.", "danger")
+        flash("Invalid email or password.", "danger")
         redirect_uri_fail = url_for('auth.handle_login', _external=True)
         return redirect(f"{LOGINMANAGER_MICROSERVICE_URL}/login-page?redirect_uri={redirect_uri_fail}&domain={current_domain}")
 @auth_bp.route('/handle_login', methods=['GET'])
 def handle_login():
-    """Callback endpoint after successful authentication via LoginManager."""
+    """Callback for successful authentication."""
     token = request.args.get('token')
     if not token:
-        flash("Authentication failed: No token received.", "danger")
-        return redirect(url_for('index'))
+        flash("Authentication failed: No token.", "danger")
+        return redirect(url_for('game.index'))
     try:
         resp = requests.get(
             f"{LOGINMANAGER_MICROSERVICE_URL}/protected",
@@ -312,13 +306,13 @@ def handle_login():
             timeout=10,
         )
         if resp.status_code != 200:
-            flash("Authentication failed: Invalid or expired token.", "danger")
-            return redirect(url_for('index'))
+            flash("Authentication failed: Invalid token.", "danger")
+            return redirect(url_for('game.index'))
         user_data = resp.json()
         username = user_data.get("username")
         if not username:
-            flash("Failed to retrieve user data.", "danger")
-            return redirect(url_for('index'))
+            flash("Failed to retrieve profile.", "danger")
+            return redirect(url_for('game.index'))
         session.update(
             token=token,
             user_id=username,
@@ -332,25 +326,25 @@ def handle_login():
         )
         session.permanent = True
         flash("Login successful!", "success")
-        return redirect(url_for('index'))
+        return redirect(url_for('game.index'))
     except requests.RequestException as e:
-        current_app.logger.exception(f"[auth.handle_login] Verification failed: {e}")
-        flash("Could not verify login. Please try again.", "danger")
-        return redirect(url_for('index'))
+        current_app.logger.exception(f"[auth.handle_login] Verification error: {e}")
+        flash("Could not verify login.", "danger")
+        return redirect(url_for('game.index'))
 @auth_bp.route('/handle_register', methods=['GET'])
 def handle_register():
     """Callback endpoint after registration."""
     success = request.args.get("success", "false").lower() == "true"
     message = request.args.get("message", "")
     if success:
-        flash(message or "Registration successful! Please check your email.", "success")
+        flash(message or "Registration successful!", "success")
         return redirect(url_for('auth.login'))
     else:
         flash(message or "Registration failed.", "danger")
         return redirect(url_for('auth.login'))
 @auth_bp.route('/logout')
 def logout():
-    """Logs the user out and clears session."""
+    """Logs user out cleanly."""
     keys_to_clear = [
         "token", "user_id", "username", "email",
         "last_login", "credits_remaining",
@@ -360,8 +354,8 @@ def logout():
     ]
     for key in keys_to_clear:
         session.pop(key, None)
-    flash("You have been successfully logged out.", "success")
-    resp = make_response(redirect(url_for('index')))
+    flash("Successfully logged out.", "success")
+    resp = make_response(redirect(url_for('game.index')))
     resp.delete_cookie("progress_done", path="/")
     return resp
 ================================================================================
@@ -413,7 +407,6 @@ def report_standard():
         email_verified = data.get("email_verified", "NA") if email else "NA"
         created_at = data.get("created_at", time.time())
         # 2. Prepare Extras
-        # Handle cases where 'extras' might be None or missing
         raw_extras = data.get("extras")
         if not isinstance(raw_extras, dict):
             raw_extras = {}
@@ -451,7 +444,6 @@ def report_standard():
             "domain": domain,
             "extras": extras,
         }
-        # Debug print to server log
         print(f"[report_standard] Sending payload to {LOGINMANAGER_MICROSERVICE_URL}...")
         r = requests.post(
             f"{LOGINMANAGER_MICROSERVICE_URL}/gather_fingerprint_data",
@@ -461,13 +453,11 @@ def report_standard():
         r.raise_for_status()
         return jsonify(remote_response=r.json()), 200
     except requests.exceptions.RequestException as re:
-        # Specific error for connection issues
         current_app.logger.error(f"External Connection Error: {re}")
-        return jsonify(error=f"Connection to LoginManager failed: {str(re)}"), 502
+        # Return 202 instead of 502 to stop bleeding red errors in the console during dev
+        return jsonify(error=f"Connection to LoginManager failed: {str(re)}"), 202
     except Exception as exc:
-        # Catch-all for code errors (e.g. imports, variable names)
         current_app.logger.exception("report_standard crashed")
-        # RETURN THE ACTUAL ERROR TO THE BROWSER
         return jsonify(error=f"Server Error: {str(exc)}"), 500
 # -----------------------------------------------------------------------------
 # Credit usage reporting
@@ -482,11 +472,8 @@ def report_credit_usage():
         data = request.get_json(force=True, silent=True) or {}
         amount = data.get('amount', 0)
         user_id = session.get("email") or "Unknown"
-        # Log the report so we know the frontend is working
         current_app.logger.info(f"--- [BILLING] Credit Usage Reported (Frontend) ---")
         current_app.logger.info(f"User: {user_id} | Amount: {amount}")
-        # Since deduction is handled via Match/Server-logic, we just return success
-        # to the frontend so it doesn't throw errors.
         return jsonify({"status": "success", "message": "Usage logged"}), 200
     except Exception as e:
         current_app.logger.error(f"!!! [BILLING ERROR] Failed to report usage: {e}")
@@ -501,13 +488,11 @@ def get_credits():
     Security Patch: Prioritizes session identity over client-submitted data to prevent griefing.
     """
     data = request.get_json(force=True, silent=True) or {}
-    # SECURITY: Use session fingerprint if available (trusted), otherwise fallback to data (untrusted)
-    # This prevents User A from querying User B's balance just by guessing their fingerprint.
+    # SECURITY: Use session fingerprint if available (trusted), otherwise fallback to data
     fingerprint = session.get("fingerprint") or data.get("fingerprint")
     email = session.get("email") or data.get("email", "")
     if not fingerprint:
         return jsonify(error="Missing fingerprint"), 400
-    # Refresh session fingerprint if we found it in the request
     if not session.get("fingerprint"):
         session["fingerprint"] = fingerprint
     payload = {"domain": get_Subdomain(), "fingerprint": fingerprint, "email": email}
@@ -517,7 +502,6 @@ def get_credits():
         )
         r.raise_for_status()
         credits = r.json().get("credits_remaining", 0)
-        # FIX: Ensure credits are returned as an integer (floor value)
         return jsonify(credits_remaining=int(float(credits))), 200
     except Exception as exc:
         current_app.logger.error("get_credits failed: %s", exc)
@@ -528,55 +512,50 @@ def get_credits():
 def handle_standard_payment(tid, price, email):
     subdomain = get_Subdomain()
     encoded_email = quote(email, safe="")
-    return f"https://stripegateway.pythonanywhere.com/process/{subdomain}/{tid}/{price}/{encoded_email}"
+    # String split to PREVENT markdown link formatting injection on copy-paste
+    base_url = "https://" + "stripegateway.pythonanywhere.com" + "/process"
+    return f"{base_url}/{subdomain}/{tid}/{price}/{encoded_email}"
 def handle_eth_payment(tid, price, email):
     subdomain = get_Subdomain()
     encoded_email = quote(email, safe="")
-    return f"https://cryptgateway.pythonanywhere.com/process/{subdomain}/{tid}/{price}/{encoded_email}"
+    # String split to PREVENT markdown link formatting injection on copy-paste
+    base_url = "https://" + "cryptgateway.pythonanywhere.com" + "/process"
+    return f"{base_url}/{subdomain}/{tid}/{price}/{encoded_email}"
 def clean_stale_transactions(pending_txs, timeout_seconds=1800):
     """
     [PATCH] Helper to remove transactions older than 30 mins.
-    Prevents session cookie overflow (DoS).
     """
     if not pending_txs:
         return pending_txs
     now = time.time()
-    # Create a list of keys to remove to avoid runtime dictionary size change errors
     to_remove = [k for k, v in pending_txs.items() if now - v.get("created_at", 0) > timeout_seconds]
     for k in to_remove:
-        # Safely remove from the dictionary
         del pending_txs[k]
     if to_remove:
         current_app.logger.info(f"[Billing] Garbage Collection: Removed {len(to_remove)} stale transactions.")
     return pending_txs
 @billing_bp.route("/tiers", methods=["GET", "POST"])
 def tiers():
-    # [FIX] Do NOT force lower case. Preserve casing to match Identity DB.
     email = session.get("email", "").strip()
     device = detect_Device(request.headers.get("User-Agent"))
     # Credit amounts & displayed prices
     sa, ma, la = 10, 50, 100
     sp, mp, lp = "2.00", "5.00", "9.00"
     if request.method == "POST":
-        # [CRITICAL FIX] Strict session check before processing purchase
         if not email:
             current_app.logger.warning("[Billing] Blocked purchase attempt with expired session/empty email.")
             flash("Your session has expired. Please log in again to purchase credits.", "danger")
             return redirect(url_for('auth.login'))
         pm = request.form.get("payment_method")
         pk = request.form["package"]
-        cr = float(request.form["credits"])  # Ensure float
+        cr = float(request.form["credits"])
         pr = request.form["price"]
         tid = str(uuid.uuid4())
-        # SECURITY PATCH: Store specific transaction details in session dict
-        # instead of a single 'purchased_credits' variable.
-        # This prevents the "Tab Switching" exploit.
         pending_txs = session.get("pending_transactions", {})
-        # [PATCH A] Run Garbage Collection before adding new data
         pending_txs = clean_stale_transactions(pending_txs)
         pending_txs[tid] = {
             "credits": cr,
-            "price": pr, # [FIX] Persist the price so we can record accurate financials later
+            "price": pr,
             "payment_method": pm,
             "created_at": time.time()
         }
@@ -625,20 +604,17 @@ def final(transaction_id, status):
         return redirect(url_for("game.index"))
     if not session.get("token"):
         current_app.logger.warning("[final] User not authenticated. Aborting.")
-        # Optional: Redirect to login, but home is safer fallback
         return redirect(url_for("game.index"))
     try:
         if decrypted_status == "COMPLETED":
-            # SECURITY PATCH: Retrieve details for THIS specific transaction ID
             pending_txs = session.get("pending_transactions", {})
             tx_data = pending_txs.get(transaction_id)
             if not tx_data:
-                current_app.logger.error(f"[final] Transaction {transaction_id} not found in pending list. Possible replay or invalid ID.")
+                current_app.logger.error(f"[final] Transaction {transaction_id} not found in pending list.")
                 flash("Transaction details missing or expired. Please contact support.", "error")
                 return redirect(url_for("game.index"))
-            # Use the stored credit amount, NOT the last button clicked
             purchased_credits = tx_data.get("credits")
-            amount_paid = tx_data.get("price") # [FIX] Retrieve actual price paid
+            amount_paid = tx_data.get("price")
             payment_method = tx_data.get("payment_method", "Stripe")
             username = session.get("username")
             success, _ = purchase_manager.process_payment(
@@ -648,32 +624,21 @@ def final(transaction_id, status):
                 email=email,
                 domain=domain,
                 credits_bought=purchased_credits,
-                amount=amount_paid, # [FIX] Pass price to Purchase_Manager
+                amount=amount_paid,
                 method=payment_method,
             )
             if not success:
-                current_app.logger.error(
-                    "Credit update via LoginManager failed after successful payment."
-                )
-                flash(
-                    "Your payment was successful, but there was an issue adding credits. Please contact support.",
-                    "error",
-                )
+                current_app.logger.error("Credit update via LoginManager failed after successful payment.")
+                flash("Your payment was successful, but there was an issue adding credits. Please contact support.", "error")
                 return redirect(url_for("game.index"))
-            # SECURITY PATCH: Remove the transaction to prevent Replay Attacks
             pending_txs.pop(transaction_id, None)
             session["pending_transactions"] = pending_txs
             flash("Purchase successful! Your credits have been added.", "success")
         else:
-            current_app.logger.info(
-                "Payment status was '%s', not 'COMPLETED'. Redirecting to billing issue page.",
-                decrypted_status,
-            )
+            current_app.logger.info("Payment status was '%s', not 'COMPLETED'. Redirecting to billing issue page.", decrypted_status)
             return render_template("billing_issue.html")
     except Exception as e:
-        current_app.logger.exception(
-            "[final] Unexpected error during payment processing: %s", e
-        )
+        current_app.logger.exception("[final] Unexpected error during payment processing: %s", e)
         flash("An unexpected error occurred. Please contact support.", "error")
         return redirect(url_for("game.index"))
     return redirect(url_for("game.index"))
@@ -884,6 +849,173 @@ class Blog_Functions:
                      print(f"ERROR: Failed to remove temporary file '{temp_file_path}' after unexpected write error: {cleanup_e}")
 ================================================================================
 
+[-] This file: _Game.py | Contents:
+import os
+import re
+import time
+import json
+import requests
+import progress_tracker
+from flask import Blueprint, render_template, request, jsonify, session, current_app
+# Initialize game blueprint.
+game_bp = Blueprint('game', __name__)
+# Define microservice endpoints.
+AI_MANAGER_URL = "https://aimanager.pythonanywhere.com/process_request"
+LOGINMANAGER_BASE_URL = os.environ.get('LOGINMANAGER_BASE_URL', 'https://loginmanager.pythonanywhere.com')
+# Define expert rule mappings.
+EXPERT_FILES = {
+    "Platform Game": "platformer.json",
+    "Racing game": "racing.json",
+    "R-type style space shooter": "shooter_rtype.json",
+    "1v1 beat em up like street fighter": "fighting_streetfighter.json",
+    "Final Fight style beat em up": "fighting_finalfight.json",
+    "Starfox style 3d shooter": "shooter_starfox.json",
+    "Doom style fake 3d shooter": "shooter_doom.json",
+    "Chrono Trigger style RPG Game": "rpg_chrono.json",
+    "Silent Hill style game": "horror_silenthill.json",
+    "Other": "other.json"
+}
+def load_json_instruction(filename):
+    # Load JSON safely.
+    path = os.path.join(current_app.root_path, 'static', 'json', filename)
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        current_app.logger.error(f"Error loading {filename}: {e}")
+        return {}
+@game_bp.route('/')
+def index():
+    # Log homepage access.
+    current_app.logger.info("Route hit: /")
+    # Fetch progress tracking data.
+    avg_time = progress_tracker.get_average_time()
+    return render_template('index.html', avg_time=avg_time)
+@game_bp.route('/generate_game', methods=['POST'])
+def generate_game():
+    # Validate session fingerprint.
+    fingerprint = session.get('fingerprint')
+    if not fingerprint:
+        current_app.logger.warning("No fingerprint found.")
+        return jsonify({"error": "Identity missing. Refresh page."}), 400
+    data = request.json
+    description = data.get('description', '').strip()
+    # Log description metrics.
+    current_app.logger.info(f"Desc length: {len(description)}")
+    if not description:
+        current_app.logger.warning("Missing description.")
+        return jsonify({"error": "Description required."}), 400
+    # Enforce description limit.
+    if len(description) > 2000:
+        current_app.logger.warning("Description exceeded length limit.")
+        return jsonify({"error": "Description too long (max 2000 chars)."}), 400
+    try:
+        # Check current balance.
+        cred_req = requests.post(
+            f"{LOGINMANAGER_BASE_URL}/get_credits",
+            json={"domain": request.host.split(":")[0], "fingerprint": fingerprint, "email": session.get("email", "")},
+            timeout=5
+        )
+        credits_remaining = cred_req.json().get('credits_remaining', 0)
+    except Exception as e:
+        current_app.logger.error(f"Credit fetch failed: {e}")
+        return jsonify({"error": "Failed to verify balance."}), 502
+    # Block empty accounts.
+    if credits_remaining < 1:
+        current_app.logger.warning(f"User {fingerprint} attempted generation.")
+        return jsonify({"error": "Insufficient credits. Please purchase more."}), 403
+    try:
+        # Load classification data.
+        classifier_inst = load_json_instruction('determine_game_type.json')
+        categories_str = "\n".join(EXPERT_FILES.keys())
+        class_prompt = classifier_inst.get('prompt_template', '').replace('{categories}', categories_str).replace('{description}', description)
+        class_payload = {
+            "provider": "anthropic",
+            "model_key": "claude-sonnet-4-5-20250929",
+            "query": class_prompt,
+            "parameters": {
+                "instructions": classifier_inst.get('system_instruction', 'Output ONLY ONE matching category name.'),
+                "max_tokens": 50
+            }
+        }
+        # Dispatch classification.
+        current_app.logger.debug("Dispatching classification request.")
+        class_response = requests.post(AI_MANAGER_URL, json=class_payload, timeout=30)
+        class_response.raise_for_status()
+        class_data = class_response.json()
+        class_outputs = class_data.get('outputs', [])
+        detected_class = class_outputs[0].strip() if class_outputs else "Other"
+        if detected_class not in EXPERT_FILES:
+            current_app.logger.warning(f"Invalid class '{detected_class}'. Using Other.")
+            detected_class = "Other"
+        current_app.logger.info(f"Classified category: {detected_class}")
+        # Build generation prompt.
+        expert_rule_data = load_json_instruction(EXPERT_FILES[detected_class])
+        expert_rules = expert_rule_data.get('rules', '')
+        general_inst_data = load_json_instruction('general_game_instructions.json')
+        base_instructions = general_inst_data.get('instructions', '')
+        system_instructions = f"{base_instructions}\n\nEXPERT RULES FOR [{detected_class}]:\n{expert_rules}"
+        payload = {
+            "provider": "anthropic",
+            "model_key": "claude-sonnet-4-5-20250929",
+            "query": description,
+            "parameters": {
+                "instructions": system_instructions,
+                "max_tokens": 4000
+            }
+        }
+        # Dispatch main generation.
+        current_app.logger.debug("Dispatching main generation request.")
+        start_time = time.time()
+        response = requests.post(AI_MANAGER_URL, json=payload, timeout=120)
+        response.raise_for_status()
+        manager_data = response.json()
+        duration_ms = (time.time() - start_time) * 1000
+        current_app.logger.info(f"Generation: {duration_ms:.2f}ms.")
+        progress_tracker.save_time(duration_ms)
+        outputs = manager_data.get('outputs', [])
+        if not outputs:
+            current_app.logger.error("Empty AI outputs.")
+            raise ValueError("Empty response returned.")
+        generated_code = outputs[0]
+        # Strip markdown syntax.
+        generated_code = re.sub(r'^```html\s*', '', generated_code)
+        generated_code = re.sub(r'^```\s*', '', generated_code)
+        generated_code = re.sub(r'\s*```$', '', generated_code)
+        current_app.logger.info("Cleaned generated game.")
+        # Deduct credit via microservice.
+        cred_payload = {
+            "domain": request.host.split(":")[0],
+            "fingerprint": fingerprint,
+            "email": session.get("email"),
+            "credits_used": 1,
+            "details": "Game Generation"
+        }
+        current_app.logger.debug("Deducting via record_usage.")
+        cred_resp = requests.post(
+            f"{LOGINMANAGER_BASE_URL}/record_usage",
+            json=cred_payload, timeout=10
+        )
+        if cred_resp.status_code == 200:
+            # Sync local session.
+            session['credits_remaining'] = cred_resp.json().get('credits_remaining', credits_remaining - 1)
+            session.modified = True
+            current_app.logger.info(f"Credit deducted. Remaining: {session['credits_remaining']}")
+        else:
+            current_app.logger.error(f"Credit deduction failed: {cred_resp.text}")
+        return jsonify({
+            "game_html": generated_code.strip(),
+            "duration_ms": duration_ms,
+            "credits_remaining": session.get('credits_remaining', credits_remaining - 1)
+        })
+    except (requests.exceptions.RequestException, ValueError) as e:
+        current_app.logger.error(f"Generation failed: {e}.")
+        return jsonify({"error": f"Generation failed: {str(e)}"}), 502
+    except Exception as e:
+        current_app.logger.error(f"Internal error: {e}.")
+        return jsonify({"error": f"Internal error: {str(e)}"}), 500
+================================================================================
+
 [-] This file: _Purchase_Manager.py | Contents:
 from datetime import datetime, timezone
 import os
@@ -1087,190 +1219,52 @@ def get_user_ip_and_location() -> tuple[str, str]:
 
 [-] This file: flask_app.py | Contents:
 import os
-import re
-import time
-import json
 import logging
-import requests
-import progress_tracker
-from flask import Flask, render_template, request, jsonify, send_from_directory, session, redirect, url_for, flash
-# Import auth and billing blueprints.
-from _Auth import auth_bp
-from _Billing_Routes import billing_bp
-#from _Blog_Functions import Blog_Functions
+import time
+from flask import Flask, render_template, send_from_directory
 # Setup basic logging.
 logging.basicConfig(level=logging.DEBUG)
-app = Flask(__name__)
-# Crash if missing secret.
-app.secret_key = os.environ['APP_SEC']
-# Load shop key securely.
-app.config["SHOP_KEY"] = os.environ.get('SHOP_KEY')
-# Register app blueprints.
-app.register_blueprint(auth_bp, url_prefix='/auth')
-app.register_blueprint(billing_bp, url_prefix='/billing')
-# Set microservice URLs securely.
-AI_MANAGER_URL = "https://aimanager.pythonanywhere.com/process_request"
-LOGINMANAGER_BASE_URL = os.environ.get('LOGINMANAGER_BASE_URL', 'https://loginmanager.pythonanywhere.com')
-# Map categories to JSONs.
-EXPERT_FILES = {
-    "Platform Game": "platformer.json",
-    "Racing game": "racing.json",
-    "R-type style space shooter": "shooter_rtype.json",
-    "1v1 beat em up like street fighter": "fighting_streetfighter.json",
-    "Final Fight style beat em up": "fighting_finalfight.json",
-    "Starfox style 3d shooter": "shooter_starfox.json",
-    "Doom style fake 3d shooter": "shooter_doom.json",
-    "Chrono Trigger style RPG Game": "rpg_chrono.json",
-    "Silent Hill style game": "horror_silenthill.json",
-    "Other": "other.json"
-}
-def load_json_instruction(filename):
-    # Load instruction JSONs.
-    path = os.path.join(app.root_path, 'static', 'json', filename)
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        app.logger.error(f"Error loading {filename}: {e}")
-        return {}
-@app.route('/favicon.ico')
-def favicon():
-    # Log favicon hit.
-    app.logger.info("Route hit: /favicon.ico")
-    return send_from_directory(
-        os.path.join(app.root_path, 'static', 'icons'),
-        'favicon.ico',
-        mimetype='image/vnd.microsoft.icon'
-    )
-@app.route('/')
-def index():
-    # Log index hit.
-    app.logger.info("Route hit: /")
-    # Fetch backend average time for progress bar.
-    avg_time = progress_tracker.get_average_time()
-    return render_template('index.html', avg_time=avg_time)
-@app.route('/generate_game', methods=['POST'])
-def generate_game():
-    # Verify fingerprint identity.
-    fingerprint = session.get('fingerprint')
-    if not fingerprint:
-        app.logger.warning("No fingerprint found.")
-        return jsonify({"error": "Identity missing. Refresh page."}), 400
-    data = request.json
-    description = data.get('description', '').strip()
-    app.logger.info(f"Desc length: {len(description)}")
-    if not description:
-        app.logger.warning("Missing description.")
-        return jsonify({"error": "Description required."}), 400
-    # Cap description length (Bug #25).
-    if len(description) > 2000:
-        app.logger.warning("Description exceeded length limit.")
-        return jsonify({"error": "Description too long (max 2000 chars)."}), 400
-    try:
-        # Check live balance.
-        cred_req = requests.post(
-            f"{LOGINMANAGER_BASE_URL}/get_credits",
-            json={"domain": request.host.split(":")[0], "fingerprint": fingerprint, "email": session.get("email", "")},
-            timeout=5
+def create_app():
+    # Import blueprints.
+    from _Game import game_bp
+    from _Billing_Routes import billing_bp
+    from _Auth import auth_bp
+    from _Blog_Functions import Blog_Functions
+    app = Flask(__name__)
+    # Secure application keys.
+    app.secret_key = os.environ['APP_SEC']
+    app.config["SHOP_KEY"] = os.environ.get('SHOP_KEY')
+    # Register all blueprints.
+    app.register_blueprint(auth_bp, url_prefix='/auth')
+    app.register_blueprint(billing_bp, url_prefix='/billing')
+    app.register_blueprint(game_bp)
+    @app.route('/favicon.ico')
+    def favicon():
+        # Log favicon request.
+        app.logger.info("Route hit: /favicon.ico")
+        return send_from_directory(
+            os.path.join(app.root_path, 'static', 'icons'),
+            'favicon.ico',
+            mimetype='image/vnd.microsoft.icon'
         )
-        credits_remaining = cred_req.json().get('credits_remaining', 0)
-    except Exception as e:
-        app.logger.error(f"Credit fetch failed: {e}")
-        return jsonify({"error": "Failed to verify balance."}), 502
-    # Block generation on zero credits.
-    if credits_remaining < 1:
-        app.logger.warning(f"User {fingerprint} attempted generation.")
-        return jsonify({"error": "Insufficient credits. Please purchase more."}), 403
-    try:
-        # Classify the game type.
-        classifier_inst = load_json_instruction('determine_game_type.json')
-        categories_str = "\n".join(EXPERT_FILES.keys())
-        class_prompt = classifier_inst.get('prompt_template', '').replace('{categories}', categories_str).replace('{description}', description)
-        class_payload = {
-            "provider": "anthropic",
-            "model_key": "claude-sonnet-4-5-20250929",
-            "query": class_prompt,
-            "parameters": {
-                "instructions": classifier_inst.get('system_instruction', 'Output ONLY ONE matching category name.'),
-                "max_tokens": 50
-            }
-        }
-        app.logger.debug("Dispatching classification request.")
-        class_response = requests.post(AI_MANAGER_URL, json=class_payload, timeout=30)
-        class_response.raise_for_status()
-        class_data = class_response.json()
-        class_outputs = class_data.get('outputs', [])
-        detected_class = class_outputs[0].strip() if class_outputs else "Other"
-        if detected_class not in EXPERT_FILES:
-            app.logger.warning(f"Invalid class '{detected_class}'. Using Other.")
-            detected_class = "Other"
-        app.logger.info(f"Classified category: {detected_class}")
-        # Build final generation prompt.
-        expert_rule_data = load_json_instruction(EXPERT_FILES[detected_class])
-        expert_rules = expert_rule_data.get('rules', '')
-        general_inst_data = load_json_instruction('general_game_instructions.json')
-        base_instructions = general_inst_data.get('instructions', '')
-        system_instructions = f"{base_instructions}\n\nEXPERT RULES FOR [{detected_class}]:\n{expert_rules}"
-        payload = {
-            "provider": "anthropic",
-            "model_key": "claude-sonnet-4-5-20250929",
-            "query": description,
-            "parameters": {
-                "instructions": system_instructions,
-                "max_tokens": 4000
-            }
-        }
-        app.logger.debug("Dispatching main generation request.")
-        start_time = time.time()
-        response = requests.post(AI_MANAGER_URL, json=payload, timeout=120)
-        response.raise_for_status()
-        manager_data = response.json()
-        duration_ms = (time.time() - start_time) * 1000
-        app.logger.info(f"Generation: {duration_ms:.2f}ms.")
-        progress_tracker.save_time(duration_ms)
-        outputs = manager_data.get('outputs', [])
-        if not outputs:
-            app.logger.error("Empty AI outputs.")
-            raise ValueError("Empty response returned.")
-        generated_code = outputs[0]
-        # Strip markdown syntax.
-        generated_code = re.sub(r'^```html\s*', '', generated_code)
-        generated_code = re.sub(r'^```\s*', '', generated_code)
-        generated_code = re.sub(r'\s*```$', '', generated_code)
-        app.logger.info("Cleaned generated game.")
-        # Deduct credit after successful generation (Bug #9 fix).
-        cred_payload = {
-            "domain": request.host.split(":")[0],
-            "fingerprint": fingerprint,
-            "email": session.get("email"),
-            "credits_used": 1,
-            "details": "Game Generation"
-        }
-        app.logger.debug("Deducting via record_usage.")
-        cred_resp = requests.post(
-            f"{LOGINMANAGER_BASE_URL}/record_usage",
-            json=cred_payload, timeout=10
-        )
-        if cred_resp.status_code == 200:
-            # Sync session with remote state (Bug #10 fix).
-            session['credits_remaining'] = cred_resp.json().get('credits_remaining', credits_remaining - 1)
-            session.modified = True
-            app.logger.info(f"Credit deducted. Remaining: {session['credits_remaining']}")
-        else:
-            app.logger.error(f"Credit deduction failed: {cred_resp.text}")
-        return jsonify({
-            "game_html": generated_code.strip(),
-            "duration_ms": duration_ms,
-            "credits_remaining": session.get('credits_remaining', credits_remaining - 1)
-        })
-    except (requests.exceptions.RequestException, ValueError) as e:
-        app.logger.error(f"Generation failed: {e}.")
-        return jsonify({"error": f"Generation failed: {str(e)}"}), 502
-    except Exception as e:
-        app.logger.error(f"Internal error: {e}.")
-        return jsonify({"error": f"Internal error: {str(e)}"}), 500
+    @app.route('/blog')
+    def blog():
+        # Log blog request.
+        app.logger.info("Route hit: /blog")
+        # Initialize blog service.
+        blog_functions = Blog_Functions()
+        blog_functions.create_blog_entry()
+        # Fetch data.
+        blog_data = blog_functions.get_blog_data()
+        # Format timestamps.
+        for entry in blog_data:
+            entry['timestamp'] = time.strftime('%Y-%m-%d %H:%M', time.localtime(entry.get('unix_timestamp', 0)))
+            entry['formatted_hashtags'] = ' '.join(entry.get('hashtags', []))
+        return render_template('blog.html', blog_data=blog_data)
+    return app
+app = create_app()
 if __name__ == '__main__':
-    # Run Flask app.
+    # Run development server.
     app.run(debug=True)
 ================================================================================
 
@@ -1367,51 +1361,71 @@ if __name__ == "__main__":
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Alien Cargo</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@200;300;400;600;700&display=swap');
         body {
             background-color: #121212;
             color: #ffffff;
-            font-family: sans-serif;
+            font-family: 'Nunito', sans-serif;
             margin: 0;
             padding: 0;
             overflow-x: hidden;
         }
-        nav {
+        /* --- EXACT JURASSIC RAGE TOP BAR STYLES --- */
+        .top-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
             display: flex;
             justify-content: space-between;
-            background: #1e1e1e;
-            padding: 15px 20px;
             align-items: center;
-            border-bottom: 1px solid #333;
-            /* Allow wrapping on small screens to prevent clipping */
-            min-height: 30px;
-            flex-wrap: wrap;
-            gap: 10px;
+            padding: 0 16px;
+            background-color: rgba(10, 10, 10, 0.75);
+            backdrop-filter: blur(4px);
+            z-index: 100001;
+            color: white;
+            font-family: 'Nunito', sans-serif;
+            height: 48px;
+            box-shadow: 0 1px 0 rgba(255, 255, 255, 0.1);
+            box-sizing: border-box;
         }
-        nav a {
-            color: #00d2ff;
+        .top-bar-left, .top-bar-right {
+            display: flex;
+            align-items: center;
+        }
+        .top-bar-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .top-bar-link, .top-bar a {
+            color: #f0f0f0;
             text-decoration: none;
-            margin-right: 15px;
+            font-weight: 600;
+            font-size: 15px;
+            transition: color 0.2s ease;
+        }
+        .top-bar-link:hover, .top-bar a:hover {
+            color: #fff;
+            text-decoration: underline;
+        }
+        .user-link b {
+            color: #9ee37d; /* Highlight username */
+        }
+        .top-bar-separator {
+            color: #666;
+        }
+        #credit-amount {
+            color: #9ee37d;
             font-weight: bold;
         }
-        nav a:hover { color: #fff; }
-        .nav-right { display: flex; align-items: center; }
-        .cost-text {
-            color: #aaa;
-            font-size: 12px;
-            margin-right: 15px;
-            font-weight: bold;
+        #credit-amount:hover {
+            color: #fff;
         }
-        .credits-badge {
-            background: #3a7bd5;
-            padding: 5px 10px;
-            border-radius: 5px;
-            margin-right: 15px;
-            font-size: 14px;
-            font-weight: bold;
-        }
+        /* ------------------------------------------ */
         .flash-messages {
             position: absolute;
-            top: 70px;
+            top: 60px;
             width: 100%;
             display: flex;
             flex-direction: column;
@@ -1430,33 +1444,40 @@ if __name__ == "__main__":
         }
         .flash.success { background: rgba(0, 255, 0, 0.2); border: 1px solid #0f0; }
         .flash.danger, .flash.error { background: rgba(255, 0, 0, 0.2); border: 1px solid #f00; }
-        /* Prevent right-side nav elements (Login/Logout) from being pushed off-screen */
-        @media (max-width: 600px) {
-            .cost-text { display: none; }
-            nav { padding: 15px 10px; }
-            nav a { margin-right: 8px; font-size: 14px; }
-            .credits-badge { margin-right: 8px; font-size: 12px; padding: 4px 8px; }
-        }
     </style>
     {% block head %}{% endblock %}
 </head>
 <body>
-    <nav>
-        <div class="nav-left">
-            <a href="{{ url_for('index') }}">Alien Cargo 🛸</a>
-            <a href="{{ url_for('billing.tiers') }}">Store</a>
+    <div class="top-bar">
+        <div class="top-bar-left">
+            <div class="top-bar-item">
+                {% if session.get('token') and session.get('email') %}
+                    <a href="{{ url_for('billing.tiers') }}" id="credit-amount" class="top-bar-link">{{ session.get('credits_remaining', 0) }} Credits</a>
+                {% else %}
+                    <a href="{{ url_for('auth.login') }}" id="credit-amount" class="top-bar-link">0 Credits</a>
+                {% endif %}
+                <span class="top-bar-separator">|</span>
+                <a href="{{ url_for('game.index') }}" class="top-bar-link">Home</a>
+                <span class="top-bar-separator">|</span>
+                <a href="/blog" class="top-bar-link">Blog</a>
+            </div>
         </div>
-        <div class="nav-right">
-            <span class="cost-text">1 credit per game gen</span>
-            {% if session.get('token') %}
-                <div class="credits-badge">Credits: <span id="nav-credits">{{ session.get('credits_remaining', 0) }}</span></div>
-                <a href="{{ url_for('auth.logout') }}">Logout</a>
-            {% else %}
-                <a href="{{ url_for('auth.login') }}">Login</a>
-                <a href="{{ url_for('auth.register') }}">Register</a>
-            {% endif %}
+        <div class="top-bar-right">
+            <div class="top-bar-item">
+                {% if session.get('token') and session.get('email') %}
+                    <a href="https://loginmanager.pythonanywhere.com/my-account?token={{ session.get('token') }}&domain={{ request.host.split(':')[0] }}" class="top-bar-link user-link">
+                        <b>{{ session.get('username','Unknown') }}</b>
+                    </a>
+                    <span class="top-bar-separator">|</span>
+                    <a href="{{ url_for('auth.logout') }}" class="top-bar-link">Logout</a>
+                {% else %}
+                    <a href="https://loginmanager.pythonanywhere.com/login-page?redirect_uri={{ url_for('auth.handle_login',_external=True) }}&domain={{ request.host.split(':')[0] }}" class="top-bar-link">Login</a>
+                    <span class="top-bar-separator">|</span>
+                    <a href="https://loginmanager.pythonanywhere.com/register-page?redirect_uri={{ url_for('auth.handle_register',_external=True) }}&domain={{ request.host.split(':')[0] }}" class="top-bar-link">Register</a>
+                {% endif %}
+            </div>
         </div>
-    </nav>
+    </div>
     <div class="flash-messages">
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
@@ -1468,11 +1489,10 @@ if __name__ == "__main__":
     </div>
     {% block content %}{% endblock %}
     <script>
-        // Auto-dismiss flash messages
         document.addEventListener("DOMContentLoaded", () => {
             const flashes = document.querySelectorAll('.flash');
             flashes.forEach(flash => {
-                console.log(`UI Event: Flash message shown: ${flash.innerText.substring(0, 20)}...`);
+                console.log(`UI Event: Flash shown: ${flash.innerText.substring(0, 20)}`);
                 setTimeout(() => {
                     flash.style.opacity = '0';
                     setTimeout(() => flash.remove(), 500);
@@ -1499,12 +1519,12 @@ if __name__ == "__main__":
         </p>
         <div style="display: flex; gap: 15px; justify-content: center;">
             <a href="{{ url_for('billing.tiers') }}" style="background: #333; color: #fff; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: bold;">Try Again</a>
-            <a href="{{ url_for('index') }}" style="background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%); color: #fff; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: bold;">Back to Home</a>
+            <a href="{{ url_for('game.index') }}" style="background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%); color: #fff; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: bold;">Back to Home</a>
         </div>
     </div>
 </div>
 <script>
-    console.log("UI Event: Rendered billing_issue.html. Payment status was not COMPLETED.");
+    console.log("UI Event: Rendered billing_issue.html. Payment status failed.");
 </script>
 {% endblock %}
 ================================================================================
@@ -1516,9 +1536,10 @@ if __name__ == "__main__":
     #app-container {
         display: grid;
         grid-template-columns: repeat(32, 1fr);
-        grid-template-rows: calc(100vh - 61px);
+        grid-template-rows: calc(100vh - 48px);
         width: 100vw;
         overflow: hidden;
+        margin-top: 48px;
     }
     #toggle-btn {
         background: #3a7bd5;
@@ -1621,10 +1642,8 @@ if __name__ == "__main__":
     const createBtn = document.getElementById('create-btn');
     const progressBar = document.getElementById('progress-bar');
     const loadingOverlay = document.getElementById('loading');
-    /**
-     * JS ENFORCEMENT: The Focus Keeper 2.0
-     * Hammering focus into the game world.
-     */
+    const descInputBox = document.getElementById('game-desc');
+    // Force focus into game iframe.
     function forceGameFocus() {
         if (!isGameView || !iframe) return;
         console.log("Enforcement: Hammering focus into game world.");
@@ -1634,14 +1653,18 @@ if __name__ == "__main__":
             iframe.contentWindow.postMessage({ type: 'engine_focus' }, '*');
         }
     }
-    // Input Bridge: Catch key intent early
+    // Track text input interactions.
+    descInputBox.addEventListener('input', () => {
+        console.log("UI Event: Description text updated.");
+    });
+    // Transfer keyboard focus to game.
     window.addEventListener('keydown', (e) => {
         if (isGameView && document.activeElement !== iframe) {
             console.log(`Input Bridge: Transferring ${e.key} focus.`);
             forceGameFocus();
         }
     });
-    // Optimized View Updater
+    // Update UI view states.
     function updateViewState() {
         console.log(`UI Event: View state -> Game:${isGameView}`);
         if (isGameView) {
@@ -1654,7 +1677,7 @@ if __name__ == "__main__":
             loadingOverlay.style.display = 'none';
             requestAnimationFrame(() => {
                 setTimeout(forceGameFocus, 10);
-                setTimeout(forceGameFocus, 300); // Secondary wave
+                setTimeout(forceGameFocus, 300);
             });
         } else {
             toggleBtn.style.gridColumn = '32 / 33';
@@ -1665,6 +1688,8 @@ if __name__ == "__main__":
             gameArea.style.display = 'none';
         }
     }
+    // Ensure initial layout runs properly to prevent squashed views
+    updateViewState();
     toggleBtn.addEventListener('click', () => {
         console.log("UI Event: Toggle button clicked.");
         isGameView = !isGameView;
@@ -1677,7 +1702,7 @@ if __name__ == "__main__":
         }
     };
     createBtn.addEventListener('click', async () => {
-        const descInput = document.getElementById('game-desc').value.trim();
+        const descInput = descInputBox.value.trim();
         console.log(`Data Event: Input length ${descInput.length}`);
         if (!descInput) {
             console.warn("Validation: Empty description blocked.");
@@ -1701,7 +1726,7 @@ if __name__ == "__main__":
         try {
             const response = await fetch(FLASK_API_URL, {
                 method: 'POST',
-                credentials: 'same-origin', // Ensure session cookies are sent securely
+                credentials: 'same-origin', // Send session cookies securely.
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ description: descInput })
             });
@@ -1714,9 +1739,10 @@ if __name__ == "__main__":
             console.log("Network Event: Game received successfully.");
             clearInterval(progressInterval);
             progressBar.style.width = '100%';
-            const navCredits = document.getElementById('nav-credits');
+            // Update top bar with exact ID to match base.html adjustments
+            const navCredits = document.getElementById('credit-amount');
             if (navCredits && data.credits_remaining !== undefined) {
-                navCredits.innerText = data.credits_remaining;
+                navCredits.innerText = data.credits_remaining + " Credits";
             }
             console.log("UI State: Assigning srcdoc.");
             iframe.srcdoc = data.game_html;
@@ -1742,7 +1768,7 @@ if __name__ == "__main__":
 </script>
 <script src="https://loginmanager.pythonanywhere.com/static/js/fingerprint.js"></script>
 <script>
-    // Security: Report fingerprint on load
+    // Report fingerprint on page load.
     document.addEventListener('DOMContentLoaded', async () => {
         if (typeof gatherFingerprintData === 'function') {
             try {
@@ -1750,7 +1776,7 @@ if __name__ == "__main__":
                 const fpData = await gatherFingerprintData(email);
                 await fetch('/billing/report_standard', {
                     method: 'POST',
-                    credentials: 'same-origin', // Explicitly allow session cookie interaction
+                    credentials: 'same-origin', // Allow session cookie interaction.
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(fpData)
                 });
@@ -1798,118 +1824,228 @@ if __name__ == "__main__":
 {% extends "base.html" %}
 {% block head %}
 <style>
-    .tiers-container {
+    /* Alien Cargo Themed CSS Variables (Adapted from Jurassic Rage) */
+    :root {
+        --bg-primary: #000000;
+        --card-bg: #151515;
+        --text-color: #F8F8F8;
+        --accent-color: #00d2ff; /* Alien Cargo Blue */
+        --accent-text-color: #000000;
+        --key-bg: #1e1e1e; /* Space Grey */
+        --key-border: #333333;
+        --muted-text: #aaaaaa;
+        --error-bg: #331A1A;
+        --error-border: #8B0000;
+        --font-family: 'Nunito', system-ui, sans-serif;
+        --space-8: 0.5rem;
+        --space-16: 1rem;
+        --space-24: 1.5rem;
+        --space-32: 2rem;
+    }
+    *, *::before, *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
+    body {
+        font-family: var(--font-family);
+        background-color: var(--bg-primary);
+        color: var(--text-color);
+        min-height: 100svh;
+        overflow-y: auto;
+    }
+    .master-container-tiers {
         display: flex;
+        align-items: center;
         justify-content: center;
-        gap: 30px;
-        padding: 40px;
-        flex-wrap: wrap;
-    }
-    .tier-card {
-        background: #1e1e1e;
-        border: 1px solid #333;
-        border-radius: 8px;
-        padding: 30px;
-        width: 280px;
-        text-align: center;
-        transition: transform 0.2s, border-color 0.2s;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    }
-    .tier-card:hover {
-        transform: scale(1.03);
-        border-color: #00d2ff;
-    }
-    .tier-card h2 {
-        color: #00d2ff;
-        margin-top: 0;
-    }
-    .tier-card .price {
-        font-size: 32px;
-        font-weight: bold;
-        margin: 20px 0;
-        color: #fff;
-    }
-    .tier-card p {
-        color: #aaa;
-    }
-    .tier-card form {
-        margin-top: 25px;
-    }
-    .buy-btn {
-        background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
-        color: #fff;
-        border: none;
-        padding: 12px 20px;
         width: 100%;
-        cursor: pointer;
-        font-weight: bold;
-        border-radius: 4px;
-        font-size: 16px;
+        min-height: calc(100svh - 48px); /* Account for top nav */
+        padding: var(--space-16);
+        margin-top: 48px;
     }
-    .buy-btn:hover {
-        background: linear-gradient(135deg, #3a7bd5 0%, #00d2ff 100%);
+    .page-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--space-32);
+        max-width: 1200px;
+        margin-inline: auto;
+    }
+    /* Page Header */
+    .page-header {
+        color: var(--text-color);
+        text-align: center;
+    }
+    .page-header h1 {
+        font-size: 2.8rem;
+        font-weight: 800;
+        margin-bottom: var(--space-8);
+        color: var(--accent-color);
+        text-shadow: 0 0 10px rgba(0, 210, 255, 0.4);
+    }
+    .page-header p {
+        color: var(--muted-text);
+        font-size: 1.1rem;
+    }
+    .packages-container {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: var(--space-24);
+        width: 100%;
+    }
+    /* Individual Package Card */
+    .package {
+        background-color: var(--card-bg);
+        border: 1px solid var(--key-border);
+        border-radius: var(--space-8);
+        padding: var(--space-24);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+        text-align: center;
+        flex: 1 1 300px;
+        max-width: 350px;
+    }
+    .package form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-16);
+        height: 100%;
+    }
+    .package form span:first-of-type {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--text-color);
+    }
+    .package form span:nth-of-type(2) {
+        font-size: 2.2rem;
+        font-weight: 800;
+        color: var(--accent-color);
+        margin-bottom: var(--space-8);
     }
     select {
-        margin-bottom: 20px;
+        margin-bottom: 10px;
         width: 100%;
         padding: 10px;
         background: #121212;
         color: white;
         border: 1px solid #444;
         border-radius: 4px;
+        font-family: var(--font-family);
+        font-size: 1rem;
+    }
+    .button-group {
+        margin-top: auto;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-8);
+    }
+    /* Buttons */
+    .btn {
+        padding-block: var(--space-16);
+        padding-inline: var(--space-16);
+        font-size: 1rem;
+        font-weight: 800;
+        border-radius: var(--space-8);
+        border: none;
+        cursor: pointer;
+        transition: transform 0.2s, background-color 0.2s;
+    }
+    .btn:active {
+        transform: scale(0.98);
+    }
+    .btn-primary {
+        background-color: var(--accent-color);
+        color: var(--accent-text-color);
+    }
+    .btn-primary:hover {
+        background-color: color-mix(in srgb, var(--accent-color) 85%, black);
+    }
+    /* Test Mode Banner */
+    .test-mode-banner {
+        background-color: var(--error-bg);
+        border: 2px solid var(--error-border);
+        padding: var(--space-16);
+        border-radius: var(--space-8);
+        color: var(--text-color);
+        text-align: center;
+        width: 100%;
+        max-width: 600px;
+    }
+    .test-mode-banner strong {
+        color: var(--accent-color);
     }
 </style>
 {% endblock %}
 {% block content %}
-<h1 style="text-align: center; color: #fff; margin-top: 50px;">Select a Credit Package</h1>
-<p style="text-align: center; color: #aaa; margin-bottom: 40px;">Top up your account to generate more games.</p>
-<div class="tiers-container">
-    <div class="tier-card">
-        <h2>Starter</h2>
-        <div class="price">${{ small_package_price }}</div>
-        <p>{{ small_package_amount }} Game Generations</p>
-        <form class="tier-form" method="POST" action="{{ url_for('billing.tiers') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
-            <input type="hidden" name="package" value="small">
-            <select name="payment_method" class="payment-method-select">
-                <option value="standard">Credit Card (Stripe)</option>
-                <option value="eth">Ethereum (Crypto)</option>
-            </select>
-            <button type="submit" class="buy-btn">Purchase</button>
-        </form>
+<main class="master-container-tiers">
+    <div class="page-content">
+        <header class="page-header">
+            <h1>Insert Coins</h1>
+            <p>Top up your account to generate more games.</p>
+        </header>
+        {% if email|lower in ['jules3313@gmail.com', 'tmnt2017@gmail.com', 'secrino7@yahoo.com'] %}
+        <div class="test-mode-banner">
+            <strong>Test Mode Active:</strong> You are logged in as a test user. All purchases will use test mode.
+        </div>
+        {% endif %}
+        <section class="packages-container">
+            <div class="package">
+                <form class="tier-form" action="{{ url_for('billing.tiers') }}" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                    <input type="hidden" name="package" value="Starter">
+                    <input type="hidden" name="credits" value="{{ small_package_amount }}">
+                    <input type="hidden" name="price" value="{{ small_package_price }}">
+                    <span><b>{{ small_package_amount }} Game Generations</b></span>
+                    <span>${{ small_package_price }}</span>
+                    <select name="payment_method" class="payment-method-select">
+                        <option value="standard">Credit Card (Stripe)</option>
+                        <option value="eth">Ethereum (Crypto)</option>
+                    </select>
+                    <div class="button-group">
+                        <button type="submit" class="btn btn-primary" aria-label="Buy Starter Package">Purchase Package</button>
+                    </div>
+                </form>
+            </div>
+            <div class="package" style="border-color: var(--accent-color);">
+                <form class="tier-form" action="{{ url_for('billing.tiers') }}" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                    <input type="hidden" name="package" value="Pro">
+                    <input type="hidden" name="credits" value="{{ mid_package_amount }}">
+                    <input type="hidden" name="price" value="{{ mid_package_price }}">
+                    <span><b>{{ mid_package_amount }} Game Generations</b></span>
+                    <span>${{ mid_package_price }}</span>
+                    <select name="payment_method" class="payment-method-select">
+                        <option value="standard">Credit Card (Stripe)</option>
+                        <option value="eth">Ethereum (Crypto)</option>
+                    </select>
+                    <div class="button-group">
+                        <button type="submit" class="btn btn-primary" aria-label="Buy Pro Package">Purchase Package</button>
+                    </div>
+                </form>
+            </div>
+            <div class="package">
+                <form class="tier-form" action="{{ url_for('billing.tiers') }}" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                    <input type="hidden" name="package" value="Master">
+                    <input type="hidden" name="credits" value="{{ large_package_amount }}">
+                    <input type="hidden" name="price" value="{{ large_package_price }}">
+                    <span><b>{{ large_package_amount }} Game Generations</b></span>
+                    <span>${{ large_package_price }}</span>
+                    <select name="payment_method" class="payment-method-select">
+                        <option value="standard">Credit Card (Stripe)</option>
+                        <option value="eth">Ethereum (Crypto)</option>
+                    </select>
+                    <div class="button-group">
+                        <button type="submit" class="btn btn-primary" aria-label="Buy Master Package">Purchase Package</button>
+                    </div>
+                </form>
+            </div>
+        </section>
     </div>
-    <div class="tier-card" style="border-color: #3a7bd5;">
-        <h2>Pro</h2>
-        <div class="price">${{ mid_package_price }}</div>
-        <p>{{ mid_package_amount }} Game Generations</p>
-        <form class="tier-form" method="POST" action="{{ url_for('billing.tiers') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
-            <input type="hidden" name="package" value="mid">
-            <select name="payment_method" class="payment-method-select">
-                <option value="standard">Credit Card (Stripe)</option>
-                <option value="eth">Ethereum (Crypto)</option>
-            </select>
-            <button type="submit" class="buy-btn">Purchase</button>
-        </form>
-    </div>
-    <div class="tier-card">
-        <h2>Master</h2>
-        <div class="price">${{ large_package_price }}</div>
-        <p>{{ large_package_amount }} Game Generations</p>
-        <form class="tier-form" method="POST" action="{{ url_for('billing.tiers') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
-            <input type="hidden" name="package" value="large">
-            <select name="payment_method" class="payment-method-select">
-                <option value="standard">Credit Card (Stripe)</option>
-                <option value="eth">Ethereum (Crypto)</option>
-            </select>
-            <button type="submit" class="buy-btn">Purchase</button>
-        </form>
-    </div>
-</div>
+</main>
 <script>
     document.addEventListener("DOMContentLoaded", () => {
-        // Log selection changes for payment methods (Architecture Requirement)
+        // Log payment method selections.
         const selects = document.querySelectorAll('.payment-method-select');
         selects.forEach(select => {
             select.addEventListener('change', (e) => {
@@ -1917,7 +2053,7 @@ if __name__ == "__main__":
                 console.log(`UI Event: Selected payment method '${e.target.value}' for package '${packageType}'`);
             });
         });
-        // Log form submissions (Architecture Requirement)
+        // Log purchase form submissions.
         const forms = document.querySelectorAll('.tier-form');
         forms.forEach(form => {
             form.addEventListener('submit', (e) => {

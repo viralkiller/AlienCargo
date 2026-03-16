@@ -65,6 +65,9 @@
             color: #9ee37d;
             font-weight: bold;
         }
+        #credit-amount:hover {
+            color: #fff;
+        }
         /* ------------------------------------------ */
 
         .flash-messages {
@@ -96,11 +99,9 @@
         <div class="top-bar-left">
             <div class="top-bar-item">
                 {% if session.get('token') and session.get('email') %}
-                    <span id="credit-amount">{{ session.get('credits_remaining', 0) }} Credits</span>
-                    <a href="{{ url_for('billing.tiers') }}" class="top-bar-link">Store</a>
+                    <a href="{{ url_for('billing.tiers') }}" id="credit-amount" class="top-bar-link">{{ session.get('credits_remaining', 0) }} Credits</a>
                 {% else %}
-                    <span id="credit-amount">0 Credits</span>
-                    <a href="{{ url_for('auth.login') }}" class="top-bar-link">Store</a>
+                    <a href="{{ url_for('auth.login') }}" id="credit-amount" class="top-bar-link">0 Credits</a>
                 {% endif %}
                 <span class="top-bar-separator">|</span>
                 <a href="{{ url_for('game.index') }}" class="top-bar-link">Home</a>

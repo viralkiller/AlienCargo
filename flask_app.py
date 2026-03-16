@@ -1,3 +1,4 @@
+# flask_app.py
 import os
 import logging
 import time
@@ -21,7 +22,8 @@ def create_app():
 
     # Register all blueprints.
     app.register_blueprint(auth_bp, url_prefix='/auth')
-    app.register_blueprint(billing_bp, url_prefix='/billing')
+    # FIX: Removed url_prefix so the external gateway can hit the /final route at the root level.
+    app.register_blueprint(billing_bp)
     app.register_blueprint(game_bp)
 
     @app.route('/favicon.ico')
