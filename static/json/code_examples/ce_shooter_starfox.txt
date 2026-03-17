@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Star Fox - ThreeJS Core Engine</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; color: #0f0; font-family: monospace; }
+        #game-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        /* 16:9 Aspect Ratio enforcement */
+        canvas { width: 1280px !important; height: 720px !important; box-shadow: 0 0 20px rgba(0,255,0,0.2); }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div id="game-container"></div>
+
+    <script>
+        /**
+         * [=] THREE.JS STAR FOX ENGINE - LEVEL 1 CORE [=]
+         * Highly detailed, Javascript-driven architecture.
+         */
+
+        // -------------------------------------------------------------------------
+        // 1. SYSTEM LOGGING UTILITY
+        // -------------------------------------------------------------------------
+        class SystemLogger {
+            constructor() {
+                this.history = [];
+            }
+            log(msg, category = "SYS") {
+                const timestamp = performance.now().toFixed(2);
+                const entry = `[${timestamp}ms] [${category}] ${msg}`;
+                this.history.push(entry);
+                console.log(entry);
+                if (window.uiManager) window.uiManager.appendLog(entry, category);
+            }
+        }
+        const Logger = new SystemLogger();
+        Logger.log("Engine initialization started.");
+
+        // -------------------------------------------------------------------------
+        // 2. JS-DRIVEN UI MANAGER (Complex UI built via JS, not CSS)
+        // -------------------------------------------------------------------------
+        class UIManager {
+            constructor() {
+                Logger.log("Building JS-driven DOM UI overlay.", "UI");
+                this.layer = document.createElement('div');
+
+                // Constructing complex UI entirely via JS properties
+                Object.assign(this.layer.style, {
+                    position: 'absolute', top: '10px', left: '10px', width: '300px',
+                    background: 'rgba(0, 20, 0, 0.85)', border: '1px solid #0f0',
+                    padding: '10px', zIndex: '100', pointerEvents: 'auto', display: 'flex', flexDirection: 'column'
+                });
+
+                // Title
+                const title = document.createElement('strong');
+                title.innerText = "ARWING FLIGHT SYS v1.0";
+                this.layer.appendChild(title);
+
+                // Health Bar
+                this.healthContainer = document.createElement('div');
+                Object.assign(this.healthContainer.style, { width: '100%', height: '20px', border: '1px solid #0f0', marginTop: '10px' });
+                this.healthBar = document.createElement('div');
+                Object.assign(this.healthBar.style, { width: '100%', height: '100%', background: '#0f0', transition: 'width 0.2s' });
+                this.healthContainer.appendChild(this.healthBar);
+                this.layer.appendChild(this.healthContainer);
+
+                // Score Display
+                this.scoreDisplay = document.createElement('div');
+                this.scoreDisplay.style.marginTop = '10px';
+                this.scoreDisplay.innerText = "SCORE: 000000";
+                this.layer.appendChild(this.scoreDisplay);
+
+                // Log Panel
+                this.logPanel = document.createElement('div');
+                Object.assign(this.logPanel.style, {
+                    width: '100%', height: '150px', overflowY: 'auto', border: '1px solid #050',
+                    marginTop: '10px', fontSize: '10px', padding: '5px', boxSizing: 'border-box'
+                });
+                this.layer.appendChild(this.logPanel);
+
+                // Controls
+                this.btnPause = document.createElement('button');
+                this.btnPause.innerText = "TOGGLE PAUSE";
+                Object.assign(this.btnPause.style, { marginTop: '10px', background: '#030', color: '#0f0', border: '1px solid #0f0', cursor: 'pointer' });
+                this.btnPause.onclick = () => {
+                    Logger.log("UI Interaction: Pause toggled.", "UI");
+                    window.engine.togglePause();
+                };
+                this.layer.appendChild(this.btnPause);
+
+                document.body.appendChild(this.layer);
+            }
+
+            appendLog(entry, category) {
+                const el = document.createElement('div');
+                el.innerText = entry;
+                el.style.color = category === 'WARN' ? '#ff0' : (category === 'COMBAT' ? '#f50' : '#0f0');
+                this.logPanel.appendChild(el);
+                this.logPanel.scrollTop = this.logPanel.scrollHeight;
+            }
+
+            updateHealth(pct) {
+                this.healthBar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+                if (pct < 30) this.healthBar.style.background = '#f00';
+            }
+
+            updateScore(score) {
+                this.scoreDisplay.innerText = `SCORE: ${score.toString().padStart(6, '0')}`;
+            }
+        }
+
+        // -------------------------------------------------------------------------
+        // 3. INPUT MANAGER
+        // -------------------------------------------------------------------------
+        class InputManager {
+            constructor() {
+                Logger.log("Binding input event listeners.", "INPUT");
+                this.keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, Shift: false, Control: false, ' ': false };
+
+                window.addEventListener('keydown', (e) => {
+                    if (this.keys.hasOwnProperty(e.key)) {
+                        if (!this.keys[e.key]) Logger.log(`Key DOWN: ${e.key}`, "INPUT");
+                        this.keys[e.key] = true;
+                    }
+                });
+
+                window.addEventListener('keyup', (e) => {
+                    if (this.keys.hasOwnProperty(e.key)) {
+                        Logger.log(`Key UP: ${e.key}`, "INPUT");
+                        this.keys[e.key] = false;
+                    }
+                });
+            }
+        }
+
+        // -------------------------------------------------------------------------
+        // 4. ENTITIES (3D Objects, Player, Enemies)
+        // -------------------------------------------------------------------------
+        class GameObject {
+            constructor(scene, type) {
+                this.scene = scene;
+                this.type = type;
+                this.mesh = null;
+                this.active = true;
+                this.velocity = new THREE.Vector3();
+                this.box = new THREE.Box3(); // For collision
+            }
+            update(dt) {
+                if (!this.active || !this.mesh) return;
+                this.mesh.position.addScaledVector(this.velocity, dt);
+                this.box.setFromObject(this.mesh);
+            }
+            destroy() {
+                this.active = false;
+                this.scene.remove(this.mesh);
+                Logger.log(`${this.type} destroyed.`, "ENTITY");
+            }
+        }
+
+        class Arwing extends GameObject {
+            constructor(scene) {
+                super(scene, "PLAYER");
+                Logger.log("Constructing Arwing 3D Mesh.", "PLAYER");
+
+                this.mesh = new THREE.Group();
+
+                // Fuselage
+                const bodyGeo = new THREE.ConeGeometry(1, 4, 4);
+                bodyGeo.rotateX(Math.PI / 2);
+                const bodyMat = new THREE.MeshPhongMaterial({ color: 0xdddddd, flatShading: true });
+                const body = new THREE.Mesh(bodyGeo, bodyMat);
+
+                // Wings
+                const wingGeo = new THREE.BoxGeometry(6, 0.2, 2);
+                const wingMat = new THREE.MeshPhongMaterial({ color: 0x3333ff });
+                const wings = new THREE.Mesh(wingGeo, wingMat);
+                wings.position.set(0, 0, 1);
+
+                this.mesh.add(body);
+                this.mesh.add(wings);
+                this.mesh.position.set(0, 0, 20);
+                scene.add(this.mesh);
+
+                this.health = 100;
+                this.speed = 30;
+                this.bankAngle = 0;
+                this.pitchAngle = 0;
+
+                this.lastFireTime = 0;
+            }
+
+            update(dt, input) {
+                if (!this.active) return;
+
+                let moveX = 0, moveY = 0;
+                let targetBank = 0;
+                let targetPitch = 0;
+
+                // Handle Input
+                if (input.keys.ArrowLeft) { moveX = -1; targetBank = Math.PI / 4; }
+                if (input.keys.ArrowRight) { moveX = 1; targetBank = -Math.PI / 4; }
+                if (input.keys.ArrowUp) { moveY = 1; targetPitch = -Math.PI / 8; }
+                if (input.keys.ArrowDown) { moveY = -1; targetPitch = Math.PI / 8; }
+
+                // Apply movement with limits
+                this.mesh.position.x += moveX * this.speed * dt;
+                this.mesh.position.y += moveY * this.speed * dt;
+                this.mesh.position.x = THREE.MathUtils.clamp(this.mesh.position.x, -25, 25);
+                this.mesh.position.y = THREE.MathUtils.clamp(this.mesh.position.y, -15, 15);
+
+                // Smooth banking (lerp)
+                this.bankAngle = THREE.MathUtils.lerp(this.bankAngle, targetBank, dt * 5);
+                this.pitchAngle = THREE.MathUtils.lerp(this.pitchAngle, targetPitch, dt * 5);
+                this.mesh.rotation.z = this.bankAngle;
+                this.mesh.rotation.x = this.pitchAngle;
+
+                // Firing logic
+                if (input.keys[' '] && performance.now() - this.lastFireTime > 200) {
+                    this.fireWeapon();
+                }
+
+                super.update(dt);
+            }
+
+            fireWeapon() {
+                Logger.log("Arwing fired lasers.", "COMBAT");
+                this.lastFireTime = performance.now();
+                window.engine.spawnProjectile(this.mesh.position.clone(), new THREE.Vector3(0, 0, -150), true);
+            }
+
+            takeDamage(amount) {
+                this.health -= amount;
+                Logger.log(`Arwing took ${amount} damage. HP: ${this.health}`, "COMBAT");
+                window.uiManager.updateHealth(this.health);
+                if (this.health <= 0) {
+                    Logger.log("CRITICAL: Arwing destroyed. Game Over.", "SYS");
+                    this.destroy();
+                }
+            }
+        }
+
+        class EnemyFighter extends GameObject {
+            constructor(scene, pos) {
+                super(scene, "ENEMY_FIGHTER");
+                const geo = new THREE.BoxGeometry(2, 2, 2);
+                const mat = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+                this.mesh = new THREE.Mesh(geo, mat);
+                this.mesh.position.copy(pos);
+                scene.add(this.mesh);
+
+                this.velocity.set(0, 0, 40); // Move towards player
+                this.health = 20;
+                Logger.log(`Enemy spawned at Z:${pos.z}`, "ENTITY");
+            }
+
+            update(dt) {
+                if (!this.active) return;
+                // Simple sine wave evasion pattern
+                this.mesh.position.x += Math.sin(performance.now() * 0.005) * 15 * dt;
+                super.update(dt);
+
+                // Cleanup if past camera
+                if (this.mesh.position.z > 30) this.destroy();
+            }
+
+            takeDamage(amount) {
+                this.health -= amount;
+                if (this.health <= 0) {
+                    Logger.log("Enemy destroyed.", "COMBAT");
+                    window.engine.score += 100;
+                    window.uiManager.updateScore(window.engine.score);
+                    this.destroy();
+                }
+            }
+        }
+
+        class Projectile extends GameObject {
+            constructor(scene, pos, vel, isPlayer) {
+                super(scene, "PROJECTILE");
+                this.isPlayer = isPlayer;
+                const geo = new THREE.CylinderGeometry(0.2, 0.2, 4);
+                geo.rotateX(Math.PI / 2);
+                const mat = new THREE.MeshBasicMaterial({ color: isPlayer ? 0x00ff00 : 0xff00ff });
+                this.mesh = new THREE.Mesh(geo, mat);
+                this.mesh.position.copy(pos);
+                this.velocity.copy(vel);
+                scene.add(this.mesh);
+            }
+            update(dt) {
+                super.update(dt);
+                if (Math.abs(this.mesh.position.z) > 500) this.destroy();
+            }
+        }
+
+        // -------------------------------------------------------------------------
+        // 5. LEVEL SEQUENCE MANAGER (Replaces ASM Macros)
+        // -------------------------------------------------------------------------
+        class LevelScript {
+            constructor() {
+                Logger.log("Compiling Level 1 script sequence.", "SYS");
+                this.sequence = [
+                    { time: 2000, action: 'spawn', type: 'fighter', x: 0, y: 5, z: -200 },
+                    { time: 3000, action: 'spawn', type: 'fighter', x: -10, y: 0, z: -200 },
+                    { time: 3500, action: 'spawn', type: 'fighter', x: 10, y: 0, z: -200 },
+                    { time: 6000, action: 'spawn', type: 'fighter', x: 0, y: -5, z: -300 },
+                    { time: 8000, action: 'msg', text: "INCOMING WAVES" }
+                ];
+                this.startTime = performance.now();
+                this.currentIndex = 0;
+            }
+
+            update() {
+                const elapsed = performance.now() - this.startTime;
+                while (this.currentIndex < this.sequence.length && elapsed >= this.sequence[this.currentIndex].time) {
+                    const evt = this.sequence[this.currentIndex];
+                    if (evt.action === 'spawn') {
+                        const pos = new THREE.Vector3(evt.x, evt.y, evt.z);
+                        window.engine.entities.push(new EnemyFighter(window.engine.scene, pos));
+                    } else if (evt.action === 'msg') {
+                        Logger.log(`COMMS: ${evt.text}`, "SYS");
+                    }
+                    this.currentIndex++;
+                }
+            }
+        }
+
+        // -------------------------------------------------------------------------
+        // 6. MAIN ENGINE LOOP & THREE.JS SETUP
+        // -------------------------------------------------------------------------
+        class GameEngine {
+            constructor() {
+                Logger.log("Initializing WebGL Engine...", "SYS");
+                this.container = document.getElementById('game-container');
+
+                // Set fixed 16:9 resolution internally
+                this.width = 1280;
+                this.height = 720;
+
+                this.scene = new THREE.Scene();
+                this.scene.fog = new THREE.Fog(0x000000, 100, 400);
+
+                this.camera = new THREE.PerspectiveCamera(60, this.width / this.height, 0.1, 1000);
+                this.camera.position.set(0, 5, 35);
+                this.camera.lookAt(0, 0, 0);
+
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.renderer.setSize(this.width, this.height);
+                this.container.appendChild(this.renderer.domElement);
+
+                this.setupLighting();
+                this.setupEnvironment();
+
+                this.input = new InputManager();
+                window.uiManager = new UIManager();
+
+                this.player = new Arwing(this.scene);
+                this.entities = [];
+                this.projectiles = [];
+                this.score = 0;
+
+                this.levelScript = new LevelScript();
+
+                this.clock = new THREE.Clock();
+                this.isPaused = false;
+
+                Logger.log("Engine fully initialized. Starting loop.", "SYS");
+                this.animate();
+            }
+
+            setupLighting() {
+                const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+                hemiLight.position.set(0, 200, 0);
+                this.scene.add(hemiLight);
+
+                const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                dirLight.position.set(0, 20, 10);
+                this.scene.add(dirLight);
+            }
+
+            setupEnvironment() {
+                // Ground Grid
+                const grid = new THREE.GridHelper(1000, 50, 0x005500, 0x002200);
+                grid.position.y = -20;
+                this.scene.add(grid);
+                this.grid = grid;
+            }
+
+            spawnProjectile(pos, vel, isPlayer) {
+                this.projectiles.push(new Projectile(this.scene, pos, vel, isPlayer));
+            }
+
+            togglePause() {
+                this.isPaused = !this.isPaused;
+                if (!this.isPaused) this.clock.getDelta(); // Reset delta to prevent jumps
+            }
+
+            checkCollisions() {
+                // Projectiles vs Enemies
+                for (let i = this.projectiles.length - 1; i >= 0; i--) {
+                    let p = this.projectiles[i];
+                    if (!p.active) continue;
+
+                    if (p.isPlayer) {
+                        for (let e of this.entities) {
+                            if (e.active && p.box.intersectsBox(e.box)) {
+                                Logger.log("Collision detected: Player Laser -> Enemy", "COMBAT");
+                                e.takeDamage(10);
+                                p.destroy();
+                                break;
+                            }
+                        }
+                    } else if (this.player.active && p.box.intersectsBox(this.player.box)) {
+                        Logger.log("Collision detected: Enemy Laser -> Player", "COMBAT");
+                        this.player.takeDamage(10);
+                        p.destroy();
+                    }
+                }
+
+                // Player vs Enemies
+                if (this.player.active) {
+                    for (let e of this.entities) {
+                        if (e.active && this.player.box.intersectsBox(e.box)) {
+                            Logger.log("Collision detected: Player Hull -> Enemy Hull", "COMBAT");
+                            this.player.takeDamage(20);
+                            e.takeDamage(100);
+                        }
+                    }
+                }
+            }
+
+            cleanupArrays() {
+                this.entities = this.entities.filter(e => e.active);
+                this.projectiles = this.projectiles.filter(p => p.active);
+            }
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+
+                if (this.isPaused) return;
+
+                const dt = this.clock.getDelta();
+
+                // Scroll grid texture to simulate forward movement
+                this.grid.position.z += 60 * dt;
+                if (this.grid.position.z > 20) this.grid.position.z = 0;
+
+                this.levelScript.update();
+                this.player.update(dt, this.input);
+
+                this.entities.forEach(e => e.update(dt));
+                this.projectiles.forEach(p => p.update(dt));
+
+                this.checkCollisions();
+                this.cleanupArrays();
+
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+
+        // Boot
+        window.engine = new GameEngine();
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+
+
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Alien Cargo | Blog</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+
+        :root {
+            /* Defining the variables used for spacing */
+            --space-8: 0.5rem;
+            --space-16: 1rem;
+            --space-24: 1.5rem;
+            --space-32: 2rem;
+            --font-family: 'Nunito', system-ui, sans-serif;
+
+            --bg-primary: #000000;
+            --entry-bg: #151515;
+            --border-color: #4C6F0A;
+            --text-color: #F8F8F8;
+            --accent-color: #E8B40A;
+            --key-bg: #4F3C2C;
+            --key-border: #7B5F4A;
+            --muted-text: #A0B967;
+            --content-text: #E0E0E0;
+        }
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        /* Base Body Styles - Set Nunito as the global font and apply black background */
+        body {
+            font-family: var(--font-family);
+            line-height: 1.5;
+            min-height: 100vh;
+            background-color: var(--bg-primary); /* Plain Black Background */
+            color: var(--content-text);
+        }
+        /* Master Container for Page Layout */
+        .master-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            min-height: 100vh;
+            padding: var(--space-16);
+        }
+        /* Back Button - Fixed Position */
+        .a-back {
+            position: fixed;
+            top: var(--space-16);
+            left: var(--space-16);
+            padding: var(--space-8) var(--space-16);
+            background-color: var(--key-bg);
+            color: var(--text-color);
+            border-radius: var(--space-8);
+            text-decoration: none;
+            z-index: 100;
+            transition: background-color 0.2s;
+            font-weight: 600;
+            font-size: 1rem;
+            border: 1px solid var(--key-border);
+        }
+        .a-back:hover {
+            background-color: var(--key-border);
+        }
+        /* Blog Content Container */
+        .row-center {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+        .form-blog {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: var(--space-16);
+        }
+        /* Individual Blog Entry */
+        .blog-entry {
+            background-color: var(--entry-bg); /* Dark theme background */
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 32px;
+            margin-bottom: var(--space-32);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.7); /* Darker, stronger shadow */
+            color: var(--content-text);
+        }
+        .blog-entry .timestamp,
+        .blog-entry .author {
+            font-size: 0.9em;
+            color: var(--muted-text); /* Themed muted color */
+            margin-bottom: var(--space-8);
+            font-weight: 600;
+        }
+        .blog-entry .title {
+            font-size: 2.2em; /* Slightly larger title */
+            font-weight: 800;
+            color: var(--accent-color); /* Amber accent color */
+            text-shadow: 0 0 10px rgba(232, 180, 10, 0.4); /* Amber glow */
+            margin-top: 0;
+            margin-bottom: var(--space-16);
+        }
+        .blog-entry .blog-post-image { /* Keep class for potential styling */
+            width: 100%;
+            height: auto;
+            border-radius: 6px;
+            margin-bottom: var(--space-24);
+            display: block;
+            /* Add a background color in case the fallback doesn't load instantly */
+            background-color: #222;
+        }
+        .blog-entry .content {
+            font-size: 1.05em;
+            line-height: 1.7;
+            color: var(--content-text);
+            white-space: pre-wrap; /* <--- CRITICAL FIX: Preserves newlines (\n) from API */
+        }
+        .blog-entry .content b {
+            display: block;
+            margin-top: var(--space-16); /* Reduced from space-24 to space-16 for tighter spacing */
+            font-size: 0.9em;
+            color: var(--muted-text); /* Hashtags use muted color */
+            word-spacing: 8px;
+        }
+    </style>
+</head>
+<body>
+    <main class="master-container">
+        <a href="/" class="a-back">Back</a>
+        <div class="row-center">
+            <div class="form-blog">
+                {% if not blog_data %}
+                    <div class="blog-entry">
+                        <h2 class="title">No Blog Posts Yet</h2>
+                        <div class="content">Check back later for new updates!</div>
+                    </div>
+                {% else %}
+                    {% for entry in blog_data[:5] %}
+                        <div class="blog-entry">
+                            <div class="timestamp">{{ entry.timestamp }}</div>
+                            <div class="author">Author: {{ entry.author }}</div>
+                            <h2 class="title">{{ entry.title }}</h2>
+                            {# --- Re-add the onerror attribute --- #}
+                            <img src="{{ entry.blog_image }}"
+                                 alt="Blog Image for {{ entry.title }}"
+                                 class="blog-post-image"
+                                 onerror="this.onerror=null; this.src='https://blogmanager.pythonanywhere.com/static/images/thumbs/generic%20laptop%20with%20blog%20written%20on%20the%20screen.png'; console.warn('Image failed to load, using fallback: {{ entry.blog_image }}');">
+                            {# MINIFIED CONTENT DIV TO FIX INDENTATION AND EXTRA SPACING #}
+                            <div class="content">{{ entry.main_text | safe }}
+                            {% if entry.formatted_hashtags %}<b>{{ entry.formatted_hashtags }}</b>{% endif %}</div>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+    </main>
+</body>
+</html>

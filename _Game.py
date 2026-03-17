@@ -105,7 +105,6 @@ def generate_game():
         current_app.logger.debug("Dispatching classification request.")
         class_response = requests.post(AI_MANAGER_URL, json=class_payload, timeout=30)
         class_response.raise_for_status()
-
         class_data = class_response.json()
         class_outputs = class_data.get('outputs', [])
         detected_class = class_outputs[0].strip() if class_outputs else "Other"
@@ -119,10 +118,16 @@ def generate_game():
         # Build generation prompt.
         expert_rule_data = load_json_instruction(EXPERT_FILES[detected_class])
         expert_rules = expert_rule_data.get('rules', '')
-
         general_inst_data = load_json_instruction('general_game_instructions.json')
         base_instructions = general_inst_data.get('instructions', '')
-        system_instructions = f"{base_instructions}\n\nEXPERT RULES FOR [{detected_class}]:\n{expert_rules}"
+
+        # Enforce UI constraints explicitly to prevent Z-Index bugs.
+        ui_rules = """UI RULES:
+        1. DO NOT CREATE A START MENU, START SCREEN, OR 'START GAME' BUTTON.
+        2. The game MUST auto-start immediately.
+        3. CRITICAL: Do NOT use window.onload or DOMContentLoaded to start the game. Because the code is injected dynamically, those events will fail to fire. You MUST call your main initialization/loop function (e.g., init(), startGame()) directly at the very bottom of your <script> tag."""
+
+        system_instructions = f"{base_instructions}\n\n{ui_rules}\n\nEXPERT RULES FOR [{detected_class}]:\n{expert_rules}"
 
         payload = {
             "provider": "anthropic",
@@ -130,20 +135,18 @@ def generate_game():
             "query": description,
             "parameters": {
                 "instructions": system_instructions,
-                "max_tokens": 4000
+                "max_tokens": 16000
             }
         }
 
         # Dispatch main generation.
         current_app.logger.debug("Dispatching main generation request.")
         start_time = time.time()
-
         response = requests.post(AI_MANAGER_URL, json=payload, timeout=120)
         response.raise_for_status()
-
         manager_data = response.json()
-        duration_ms = (time.time() - start_time) * 1000
 
+        duration_ms = (time.time() - start_time) * 1000
         current_app.logger.info(f"Generation: {duration_ms:.2f}ms.")
         progress_tracker.save_time(duration_ms)
 
@@ -160,6 +163,42 @@ def generate_game():
         generated_code = re.sub(r'\s*```$', '', generated_code)
 
         current_app.logger.info("Cleaned generated game.")
+
+        # --- AI OUTPUT LOGGING TO DISK ---
+        try:
+            username = session.get("username")
+
+            # Determine directory based on auth status
+            if username:
+                # Basic sanitation for username directory
+                safe_username = "".join([c for c in username if c.isalnum() or c in ('_', '-')])
+                save_dir = os.path.join(current_app.root_path, 'user_data', safe_username)
+            else:
+                save_dir = os.path.join(current_app.root_path, 'temp_data', fingerprint)
+
+            os.makedirs(save_dir, exist_ok=True)
+
+            # Generate unique filename with Unix timestamp
+            unix_timestamp = int(time.time())
+            filename = f"{unix_timestamp}.json"
+            filepath = os.path.join(save_dir, filename)
+
+            # Prepare JSON payload
+            log_data = {
+                "timestamp": unix_timestamp,
+                "class": detected_class,
+                "prompt": description,
+                "code": generated_code.strip()
+            }
+
+            # Save the raw output
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(log_data, f, indent=4)
+
+            current_app.logger.info(f"Successfully logged AI output to: {filepath}")
+        except Exception as log_err:
+            current_app.logger.error(f"Failed to save AI output log: {log_err}")
+        # ---------------------------------
 
         # Deduct credit via microservice.
         cred_payload = {

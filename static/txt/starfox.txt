@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PhaserJS Retro 3D Core - Extended Architecture</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #050505;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: #00ffcc;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            user-select: none;
+        }
+        #game-wrapper {
+            position: relative;
+            border: 2px solid #222;
+            box-shadow: 0 0 40px rgba(0, 255, 204, 0.1);
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            box-sizing: border-box;
+            padding: 20px;
+            z-index: 10;
+        }
+        .hud-row {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            text-shadow: 2px 2px 0px #000, -1px -1px 0 #000;
+        }
+        .hud-element {
+            font-size: 24px;
+            font-weight: 900;
+            letter-spacing: 2px;
+        }
+        #reticle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            border: 2px solid rgba(0, 255, 204, 0.5);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+        #reticle::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 4px;
+            height: 4px;
+            background: #ff0055;
+            border-radius: 50%;
+        }
+        #dev-console {
+            position: absolute;
+            bottom: -200px;
+            left: 0;
+            width: 100%;
+            height: 200px;
+            background: rgba(0, 0, 0, 0.9);
+            border-top: 1px solid #00ffcc;
+            font-size: 12px;
+            overflow-y: auto;
+            padding: 10px;
+            box-sizing: border-box;
+            transition: bottom 0.3s ease;
+            pointer-events: auto;
+        }
+        #dev-console.active {
+            bottom: 0;
+        }
+        .log-entry { margin-bottom: 4px; border-bottom: 1px solid #111; padding-bottom: 2px; }
+        .log-info { color: #aaa; }
+        .log-warn { color: #ffaa00; }
+        .log-error { color: #ff0000; }
+        .log-sys { color: #00ffcc; }
+
+        .controls-panel {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            background: #111;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #333;
+        }
+        button {
+            background: #222;
+            color: #00ffcc;
+            border: 1px solid #00ffcc;
+            padding: 8px 16px;
+            font-family: inherit;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+        }
+        button:hover {
+            background: #00ffcc;
+            color: #000;
+        }
+        button:active {
+            transform: scale(0.95);
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        input[type="range"] {
+            accent-color: #00ffcc;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+</head>
+<body>
+
+    <div id="game-wrapper">
+        <div id="ui-layer">
+            <div class="hud-row">
+                <div class="hud-element" id="hud-score">SCORE: 000000</div>
+                <div class="hud-element" id="hud-time">TIME: 00:00</div>
+            </div>
+            <div id="reticle"></div>
+            <div class="hud-row">
+                <div class="hud-element" id="hud-shield">SHIELD: ||||||||||</div>
+                <div class="hud-element" id="hud-bombs">BOMBS: 3</div>
+            </div>
+        </div>
+        <div id="dev-console"></div>
+    </div>
+
+    <div class="controls-panel">
+        <button id="btn-wireframe">Toggle Wireframe</button>
+        <button id="btn-console">Toggle Dev Console</button>
+        <div class="slider-container">
+            <label for="fov-slider">FOV</label>
+            <input type="range" id="fov-slider" min="100" max="600" value="250">
+            <span id="fov-value">250</span>
+        </div>
+        <div class="slider-container">
+            <label for="cam-slider">CAM Z</label>
+            <input type="range" id="cam-slider" min="100" max="1000" value="250">
+            <span id="cam-value">250</span>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // SYSTEM LOGGING ARCHITECTURE
+        // ==========================================
+        class Logger {
+            static init() {
+                this.history = [];
+                this.consoleEl = document.getElementById('dev-console');
+            }
+
+            static _write(level, category, message, data) {
+                const timestamp = new Date().toISOString().split('T')[1].slice(0, -1);
+                const dataStr = data ? JSON.stringify(data) : '';
+                const logStr = `[${timestamp}] [${level}] [${category}] ${message} ${dataStr}`;
+
+                this.history.push({ level, logStr });
+                if (this.history.length > 500) this.history.shift();
+
+                console.log(logStr);
+
+                if (this.consoleEl) {
+                    const el = document.createElement('div');
+                    el.className = `log-entry log-${level.toLowerCase()}`;
+                    el.innerText = logStr;
+                    this.consoleEl.appendChild(el);
+                    this.consoleEl.scrollTop = this.consoleEl.scrollHeight;
+                }
+            }
+
+            static sys(cat, msg, data) { this._write('SYS', cat, msg, data); }
+            static info(cat, msg, data) { this._write('INFO', cat, msg, data); }
+            static warn(cat, msg, data) { this._write('WARN', cat, msg, data); }
+            static error(cat, msg, data) { this._write('ERROR', cat, msg, data); }
+        }
+
+        Logger.init();
+        Logger.sys('CORE', 'Logger Initialized.');
+
+        // ==========================================
+        // UI INTERACTION BINDINGS
+        // ==========================================
+        document.getElementById('btn-wireframe').addEventListener('click', (e) => {
+            Logger.info('UI_INTERACTION', 'Button Clicked', { id: e.target.id });
+            if (window.gameEngine) window.gameEngine.toggleWireframe();
+        });
+
+        document.getElementById('btn-console').addEventListener('click', (e) => {
+            Logger.info('UI_INTERACTION', 'Button Clicked', { id: e.target.id });
+            document.getElementById('dev-console').classList.toggle('active');
+        });
+
+        document.getElementById('fov-slider').addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            document.getElementById('fov-value').innerText = val;
+            if (window.gameEngine) window.gameEngine.setFOV(val);
+        });
+
+        document.getElementById('fov-slider').addEventListener('change', (e) => {
+            Logger.info('UI_INTERACTION', 'Slider Released', { id: e.target.id, finalValue: e.target.value });
+        });
+
+        document.getElementById('cam-slider').addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            document.getElementById('cam-value').innerText = val;
+            if (window.gameEngine) window.gameEngine.setCamDist(val);
+        });
+
+        document.getElementById('cam-slider').addEventListener('change', (e) => {
+            Logger.info('UI_INTERACTION', 'Slider Released', { id: e.target.id, finalValue: e.target.value });
+        });
+
+        // ==========================================
+        // 3D MATHEMATICS LIBRARY
+        // ==========================================
+        class Vector3 {
+            constructor(x = 0, y = 0, z = 0) {
+                this.x = x; this.y = y; this.z = z;
+            }
+            clone() { return new Vector3(this.x, this.y, this.z); }
+            add(v) { this.x += v.x; this.y += v.y; this.z += v.z; return this; }
+            sub(v) { this.x -= v.x; this.y -= v.y; this.z -= v.z; return this; }
+            mult(scalar) { this.x *= scalar; this.y *= scalar; this.z *= scalar; return this; }
+            mag() { return Math.sqrt(this.x*this.x + this.y*this.y + this.z*this.z); }
+            normalize() {
+                const m = this.mag();
+                if (m > 0) this.mult(1/m);
+                return this;
+            }
+        }
+
+        class Math3D {
+            static project(v, fov, viewerDist, sw, sh) {
+                const zDist = viewerDist + v.z;
+                if (zDist <= 0) return { x: 0, y: 0, scale: -1, visible: false };
+                const factor = fov / zDist;
+                return {
+                    x: (v.x * factor) + (sw / 2),
+                    y: (v.y * factor) + (sh / 2),
+                    scale: factor,
+                    visible: true
+                };
+            }
+
+            static rotateX(v, angle) {
+                const cos = Math.cos(angle), sin = Math.sin(angle);
+                const y = v.y * cos - v.z * sin;
+                const z = v.y * sin + v.z * cos;
+                return new Vector3(v.x, y, z);
+            }
+
+            static rotateY(v, angle) {
+                const cos = Math.cos(angle), sin = Math.sin(angle);
+                const x = v.x * cos - v.z * sin;
+                const z = v.x * sin + v.z * cos;
+                return new Vector3(x, v.y, z);
+            }
+
+            static rotateZ(v, angle) {
+                const cos = Math.cos(angle), sin = Math.sin(angle);
+                const x = v.x * cos - v.y * sin;
+                const y = v.x * sin + v.y * cos;
+                return new Vector3(x, y, v.z);
+            }
+
+            static transform(v, rx, ry, rz, tx, ty, tz) {
+                let p = this.rotateX(v, rx);
+                p = this.rotateY(p, ry);
+                p = this.rotateZ(p, rz);
+                p.add(new Vector3(tx, ty, tz));
+                return p;
+            }
+        }
+
+        // ==========================================
+        // GEOMETRY & MODELS
+        // ==========================================
+        class Face {
+            constructor(indices, color, isQuad = false) {
+                this.indices = indices;
+                this.color = color;
+                this.isQuad = isQuad;
+                this.zAverage = 0; // For depth sorting
+            }
+        }
+
+        class ModelData {
+            constructor(vertices, faces) {
+                this.vertices = vertices.map(v => new Vector3(v[0], v[1], v[2]));
+                this.faces = faces;
+            }
+        }
+
+        const Models = {
+            Arwing: new ModelData([
+                [0, 0, 40],     // 0 Nose
+                [-25, 0, -20],  // 1 Left Wing tip
+                [25, 0, -20],   // 2 Right Wing tip
+                [0, -15, -15],  // 3 Top Fin
+                [0, 10, -15],   // 4 Bottom Engine
+                [-10, 0, -10],  // 5 Left Wing root
+                [10, 0, -10]    // 6 Right wing root
+            ], [
+                new Face([0, 5, 3], 0xeeeeee), // Left top nose
+                new Face([0, 3, 6], 0xdddddd), // Right top nose
+                new Face([0, 4, 5], 0xcccccc), // Left bot nose
+                new Face([0, 6, 4], 0xbbbbbb), // Right bot nose
+                new Face([5, 1, 3], 0x0088ff), // Left wing top
+                new Face([6, 3, 2], 0x0088ff), // Right wing top
+                new Face([5, 4, 1], 0x0055aa), // Left wing bot
+                new Face([6, 2, 4], 0x0055aa), // Right wing bot
+                new Face([1, 4, 3], 0x444444), // Left back
+                new Face([2, 3, 4], 0x444444)  // Right back
+            ]),
+
+            EnemyDrone: new ModelData([
+                [0, 15, 0], [15, 0, 15], [15, 0, -15], [-15, 0, -15], [-15, 0, 15], [0, -15, 0]
+            ], [
+                new Face([0, 1, 2], 0xff0055), new Face([0, 2, 3], 0xdd0044),
+                new Face([0, 3, 4], 0xff0055), new Face([0, 4, 1], 0xdd0044),
+                new Face([5, 2, 1], 0xaa0022), new Face([5, 3, 2], 0x880011),
+                new Face([5, 4, 3], 0xaa0022), new Face([5, 1, 4], 0x880011)
+            ]),
+
+            Laser: new ModelData([
+                [0, 0, 10], [-2, 0, -10], [2, 0, -10], [0, 2, -10], [0, -2, -10]
+            ], [
+                new Face([0, 1, 3], 0x00ffcc), new Face([0, 3, 2], 0x00ffcc),
+                new Face([0, 2, 4], 0x00ffcc), new Face([0, 4, 1], 0x00ffcc)
+            ])
+        };
+
+        // ==========================================
+        // ENTITY COMPONENT SYSTEM
+        // ==========================================
+        class Entity {
+            constructor(scene, x, y, z, model) {
+                this.scene = scene;
+                this.id = Math.random().toString(36).substr(2, 9);
+                this.pos = new Vector3(x, y, z);
+                this.rot = new Vector3(0, 0, 0);
+                this.vel = new Vector3(0, 0, 0);
+                this.model = model;
+                this.active = true;
+                this.scale = 1.0;
+                this.type = 'Generic';
+                Logger.info('ENTITY_LIFECYCLE', 'Spawned', { type: this.type, id: this.id, x, y, z });
+            }
+
+            update(dt) {
+                this.pos.add(new Vector3(this.vel.x * dt, this.vel.y * dt, this.vel.z * dt));
+            }
+
+            destroy() {
+                this.active = false;
+                Logger.info('ENTITY_LIFECYCLE', 'Destroyed', { type: this.type, id: this.id });
+            }
+        }
+
+        class Player extends Entity {
+            constructor(scene, x, y, z) {
+                super(scene, x, y, z, Models.Arwing);
+                this.type = 'Player';
+                this.shield = 100;
+                this.banking = 0; // -1 to 1
+                this.pitching = 0;
+            }
+
+            update(dt) {
+                super.update(dt);
+                // Apply banking visual rotation
+                this.rot.z = Phaser.Math.Linear(this.rot.z, this.banking * 0.8, 0.1);
+                this.rot.x = Phaser.Math.Linear(this.rot.x, this.pitching * 0.4, 0.1);
+
+                // Boundaries
+                const limitX = 400; const limitY = 300;
+                if (this.pos.x > limitX) this.pos.x = limitX;
+                if (this.pos.x < -limitX) this.pos.x = -limitX;
+                if (this.pos.y > limitY) this.pos.y = limitY;
+                if (this.pos.y < -limitY) this.pos.y = -limitY;
+            }
+
+            takeDamage(amt) {
+                this.shield -= amt;
+                Logger.warn('COMBAT', 'Player Damaged', { amount: amt, remainingShield: this.shield });
+                document.getElementById('hud-shield').innerText = `SHIELD: ${'|'.repeat(Math.max(0, Math.ceil(this.shield/10)))}`;
+                if (this.shield <= 0) {
+                    Logger.error('GAME_STATE', 'Player Destroyed', {});
+                    this.destroy();
+                }
+            }
+        }
+
+        class Projectile extends Entity {
+            constructor(scene, x, y, z, velZ, isEnemy = false) {
+                super(scene, x, y, z, Models.Laser);
+                this.type = 'Projectile';
+                this.vel.z = velZ;
+                this.isEnemy = isEnemy;
+                this.life = 100; // frames
+            }
+            update(dt) {
+                super.update(dt);
+                this.life--;
+                if (this.life <= 0 || this.pos.z > 5000 || this.pos.z < -1000) this.destroy();
+            }
+        }
+
+        class Enemy extends Entity {
+            constructor(scene, x, y, z) {
+                super(scene, x, y, z, Models.EnemyDrone);
+                this.type = 'Enemy';
+                this.hp = 20;
+                this.vel.z = -800; // Move towards player
+                this.sinOffset = Math.random() * Math.PI * 2;
+            }
+            update(dt) {
+                super.update(dt);
+                this.rot.x += 0.05;
+                this.rot.y += 0.05;
+                this.pos.x += Math.sin(this.scene.time.now / 500 + this.sinOffset) * 5;
+
+                if (this.pos.z < -500) this.destroy(); // Passed camera
+            }
+            hit(dmg) {
+                this.hp -= dmg;
+                Logger.info('COMBAT', 'Enemy Hit', { id: this.id, hpLeft: this.hp });
+                if (this.hp <= 0) {
+                    this.scene.addScore(150);
+                    this.destroy();
+                }
+            }
+        }
+
+        // ==========================================
+        // MAIN PHASER SCENE
+        // ==========================================
+        class MainScene extends Phaser.Scene {
+            constructor() {
+                super({ key: 'MainScene' });
+                this.entities = [];
+                this.wireframeMode = false;
+                this.fov = 250;
+                this.camDist = 250;
+                this.score = 0;
+                this.gameTime = 0;
+
+                this.keyMap = {};
+            }
+
+            create() {
+                Logger.sys('SCENE', 'MainScene Created');
+                window.gameEngine = this;
+
+                this.graphics = this.add.graphics();
+
+                // Setup Player
+                this.player = new Player(this, 0, 0, -100);
+                this.entities.push(this.player);
+
+                // Setup Inputs
+                this.cursors = this.input.keyboard.createCursorKeys();
+                this.fireKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+                this.bombKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.B);
+
+                // Input binding for robust logging
+                this.setupInputLogging();
+
+                // Spawners
+                this.time.addEvent({ delay: 2000, callback: this.spawnWave, callbackScope: this, loop: true });
+
+                // Background Stars
+                this.stars = Array.from({length: 300}, () => new Vector3(
+                    Phaser.Math.Between(-2000, 2000),
+                    Phaser.Math.Between(-2000, 2000),
+                    Phaser.Math.Between(0, 4000)
+                ));
+            }
+
+            setupInputLogging() {
+                const keysToTrack = ['UP', 'DOWN', 'LEFT', 'RIGHT', 'SPACE', 'B'];
+                keysToTrack.forEach(k => {
+                    this.input.keyboard.on(`keydown-${k}`, () => {
+                        if (!this.keyMap[k]) {
+                            this.keyMap[k] = true;
+                            Logger.info('INPUT', 'Key Down', { key: k });
+                        }
+                    });
+                    this.input.keyboard.on(`keyup-${k}`, () => {
+                        this.keyMap[k] = false;
+                        Logger.info('INPUT', 'Key Up', { key: k });
+                    });
+                });
+            }
+
+            toggleWireframe() {
+                this.wireframeMode = !this.wireframeMode;
+                Logger.sys('RENDERER', 'Wireframe Mode Toggled', { state: this.wireframeMode });
+            }
+            setFOV(val) { this.fov = val; Logger.sys('RENDERER', 'FOV Changed', { value: val }); }
+            setCamDist(val) { this.camDist = val; Logger.sys('RENDERER', 'Camera Z Changed', { value: val }); }
+            addScore(amt) {
+                this.score += amt;
+                document.getElementById('hud-score').innerText = `SCORE: ${this.score.toString().padStart(6, '0')}`;
+            }
+
+            spawnWave() {
+                if (!this.player.active) return;
+                const count = Phaser.Math.Between(1, 3);
+                Logger.sys('SPAWNER', 'Spawning Wave', { count });
+                for(let i=0; i<count; i++) {
+                    const e = new Enemy(
+                        this,
+                        Phaser.Math.Between(-600, 600),
+                        Phaser.Math.Between(-400, 400),
+                        3000 + (i * 200)
+                    );
+                    this.entities.push(e);
+                }
+            }
+
+            fireLaser() {
+                if (!this.player.active) return;
+                Logger.info('COMBAT', 'Player Fired Laser');
+                // Twin lasers
+                const l1 = new Projectile(this, this.player.pos.x - 20, this.player.pos.y, this.player.pos.z + 40, 2000, false);
+                const l2 = new Projectile(this, this.player.pos.x + 20, this.player.pos.y, this.player.pos.z + 40, 2000, false);
+                this.entities.push(l1, l2);
+            }
+
+            handleInput(dt) {
+                if (!this.player.active) return;
+                const speed = 600 * dt;
+
+                this.player.banking = 0;
+                this.player.pitching = 0;
+
+                if (this.cursors.left.isDown) { this.player.pos.x -= speed; this.player.banking = 1; }
+                if (this.cursors.right.isDown) { this.player.pos.x += speed; this.player.banking = -1; }
+                if (this.cursors.up.isDown) { this.player.pos.y -= speed; this.player.pitching = -1; }
+                if (this.cursors.down.isDown) { this.player.pos.y += speed; this.player.pitching = 1; }
+
+                if (Phaser.Input.Keyboard.JustDown(this.fireKey)) {
+                    this.fireLaser();
+                }
+            }
+
+            checkCollisions() {
+                const enemies = this.entities.filter(e => e.type === 'Enemy');
+                const lasers = this.entities.filter(e => e.type === 'Projectile' && !e.isEnemy);
+
+                // Laser vs Enemy O(N*M) - fine for small counts
+                for (let l of lasers) {
+                    if (!l.active) continue;
+                    for (let e of enemies) {
+                        if (!e.active) continue;
+                        // Simple 3D AABB/Sphereish collision
+                        const dx = l.pos.x - e.pos.x;
+                        const dy = l.pos.y - e.pos.y;
+                        const dz = l.pos.z - e.pos.z;
+                        const distSq = dx*dx + dy*dy + dz*dz;
+                        if (distSq < 4000) { // roughly 60 units
+                            l.destroy();
+                            e.hit(10);
+                            break;
+                        }
+                    }
+                }
+
+                // Player vs Enemy
+                if (this.player.active) {
+                    for (let e of enemies) {
+                        if (!e.active) continue;
+                        const dx = this.player.pos.x - e.pos.x;
+                        const dy = this.player.pos.y - e.pos.y;
+                        const dz = this.player.pos.z - e.pos.z;
+                        if (dx*dx + dy*dy + dz*dz < 10000) { // roughly 100 units
+                            this.player.takeDamage(20);
+                            e.destroy();
+                        }
+                    }
+                }
+            }
+
+            update(time, delta) {
+                const dt = delta / 1000;
+                this.gameTime += dt;
+                document.getElementById('hud-time').innerText = `TIME: ${Math.floor(this.gameTime/60).toString().padStart(2,'0')}:${Math.floor(this.gameTime%60).toString().padStart(2,'0')}`;
+
+                this.graphics.clear();
+
+                this.handleInput(dt);
+                this.checkCollisions();
+
+                // Update entities
+                for (let i = this.entities.length - 1; i >= 0; i--) {
+                    let e = this.entities[i];
+                    e.update(dt);
+                    if (!e.active) {
+                        this.entities.splice(i, 1);
+                    }
+                }
+
+                const cx = this.cameras.main.width / 2;
+                const cy = this.cameras.main.height / 2;
+
+                // Render Stars
+                this.graphics.fillStyle(0xffffff, 0.8);
+                for (let star of this.stars) {
+                    star.z -= 1000 * dt;
+                    if (star.z < 0) {
+                        star.z = 4000;
+                        star.x = Phaser.Math.Between(-2000, 2000);
+                        star.y = Phaser.Math.Between(-2000, 2000);
+                    }
+                    const proj = Math3D.project(star, this.fov, this.camDist, cx*2, cy*2);
+                    if (proj.visible) {
+                        this.graphics.fillRect(proj.x, proj.y, proj.scale * 3, proj.scale * 3);
+                    }
+                }
+
+                // Collect and sort polygons for drawing (Painter's Algorithm)
+                let renderQueue = [];
+
+                for (let e of this.entities) {
+                    if (!e.model) continue;
+
+                    // Transform vertices into world space
+                    const worldVerts = e.model.vertices.map(v =>
+                        Math3D.transform(v, e.rot.x, e.rot.y, e.rot.z, e.pos.x, e.pos.y, e.pos.z)
+                    );
+
+                    for (let face of e.model.faces) {
+                        const pts = face.indices.map(idx => worldVerts[idx]);
+
+                        // Backface culling rough estimation (using first 3 points)
+                        if (pts.length >= 3) {
+                            const v1 = pts[1].clone().sub(pts[0]);
+                            const v2 = pts[2].clone().sub(pts[0]);
+                            // Cross product Z
+                            const normalZ = v1.x * v2.y - v1.y * v2.x;
+                            // Only strictly apply culling if we aren't heavily rotating, simplified for retro feel
+                            // For true 3D, we need vector to camera. Let's do a simple depth sort first.
+                        }
+
+                        // Project
+                        let valid = true;
+                        const projPts = pts.map(p => {
+                            const pr = Math3D.project(p, this.fov, this.camDist, cx*2, cy*2);
+                            if (!pr.visible) valid = false;
+                            return pr;
+                        });
+
+                        if (valid) {
+                            // Calculate average Z for sorting
+                            const avgZ = pts.reduce((sum, p) => sum + p.z, 0) / pts.length;
+                            renderQueue.push({ points: projPts, color: face.color, z: avgZ });
+                        }
+                    }
+                }
+
+                // Sort queue furthest to closest
+                renderQueue.sort((a, b) => b.z - a.z);
+
+                // Draw Queue
+                for (let poly of renderQueue) {
+                    this.graphics.lineStyle(1, 0x000000, 1); // Dark outline for retro flat look
+
+                    if (!this.wireframeMode) {
+                        this.graphics.fillStyle(poly.color, 1.0);
+                        this.graphics.beginPath();
+                        this.graphics.moveTo(poly.points[0].x, poly.points[0].y);
+                        for(let i=1; i<poly.points.length; i++) {
+                            this.graphics.lineTo(poly.points[i].x, poly.points[i].y);
+                        }
+                        this.graphics.closePath();
+                        this.graphics.fillPath();
+                        this.graphics.strokePath();
+                    } else {
+                        // Wireframe
+                        this.graphics.lineStyle(2, poly.color, 1.0);
+                        this.graphics.beginPath();
+                        this.graphics.moveTo(poly.points[0].x, poly.points[0].y);
+                        for(let i=1; i<poly.points.length; i++) {
+                            this.graphics.lineTo(poly.points[i].x, poly.points[i].y);
+                        }
+                        this.graphics.closePath();
+                        this.graphics.strokePath();
+                    }
+                }
+
+                // Horizon line pseudo-effect
+                if (this.wireframeMode) {
+                    this.graphics.lineStyle(1, 0x00ffcc, 0.3);
+                    const horizonY = cy + (this.player.pitching * 50);
+                    this.graphics.strokeLineShape(new Phaser.Geom.Line(0, horizonY, cx*2, horizonY));
+                }
+            }
+        }
+
+        // ==========================================
+        // ENGINE BOOTSTRAP
+        // ==========================================
+        const config = {
+            type: Phaser.AUTO,
+            width: 1280,
+            height: 720,
+            parent: 'game-wrapper',
+            scene: [MainScene],
+            backgroundColor: '#000000',
+            fps: { target: 60, forceSetTimeOut: true },
+            antialias: false // Crisp retro edges
+        };
+
+        const game = new Phaser.Game(config);
+        Logger.sys('BOOT', 'Phaser Engine Started', { resolution: '1280x720', antialias: false });
+
+    </script>
+</body>
+</html>

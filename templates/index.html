@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+
 {% block head %}
 <style>
     #app-container {
@@ -9,6 +10,7 @@
         overflow: hidden;
         margin-top: 48px;
     }
+
     #toggle-btn {
         background: #3a7bd5;
         color: #fff;
@@ -20,7 +22,9 @@
         height: 100%;
         width: 100%;
     }
+
     #toggle-btn:hover { background: #00d2ff; }
+
     iframe {
         border: none;
         background-color: #000;
@@ -28,6 +32,7 @@
         width: 100%;
         height: 100%;
     }
+
     #prompt-area {
         display: flex;
         flex-direction: column;
@@ -37,6 +42,7 @@
         box-sizing: border-box;
         position: relative;
     }
+
     #game-desc {
         width: 100%;
         max-width: 600px;
@@ -47,6 +53,7 @@
         padding: 10px;
         border: 1px solid #333;
     }
+
     #create-btn {
         padding: 10px 20px;
         background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
@@ -55,6 +62,7 @@
         cursor: pointer;
         font-weight: bold;
     }
+
     #game-area {
         margin: 0;
         padding: 16px;
@@ -64,6 +72,7 @@
         align-items: center;
         background: #000;
     }
+
     #game-frame {
         width: 800px;
         height: 450px;
@@ -73,15 +82,18 @@
     }
 </style>
 {% endblock %}
+
 {% block content %}
 <div id="app-container">
     <button id="toggle-btn" title="Toggle View">&lt;</button>
+
     <div id="prompt-area">
         <h1 style="color: #00d2ff; margin-bottom: 5px;">Alien Cargo 🛸</h1>
         <p style="color: #aaa; margin-top: 0;">AI-Powered Instant Game Generator</p>
 
         <textarea id="game-desc" placeholder="Describe your game..." maxlength="2000"></textarea>
         <button id="create-btn">Create Game</button>
+
         <div id="loading" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); color: #00d2ff; flex-direction: column; justify-content: center; align-items: center; z-index: 10;">
             <h2 id="loading-text" style="margin-bottom: 20px;">Engaging Hyperdrive...</h2>
             <div id="progress-container" style="width: 80%; max-width: 400px; height: 12px; background: #222; border-radius: 6px; overflow: hidden; border: 1px solid #333;">
@@ -90,19 +102,20 @@
             <p id="status-update" style="margin-top: 15px; color: #666; font-size: 12px;">Syncing with AIManager...</p>
         </div>
     </div>
+
     <div id="game-area" style="display: none;">
         <iframe id="game-frame"
-                allow="autoplay; fullscreen;"
                 tabindex="0"
-                scrolling="no"
                 src="about:blank">
         </iframe>
     </div>
 </div>
+
 <script>
     const FLASK_API_URL = "/generate_game";
     let isGameView = false;
     const BACKEND_AVG_TIME = {{ avg_time|default(15000)|int }};
+
     const toggleBtn = document.getElementById('toggle-btn');
     const promptArea = document.getElementById('prompt-area');
     const gameArea = document.getElementById('game-area');
@@ -112,10 +125,19 @@
     const loadingOverlay = document.getElementById('loading');
     const descInputBox = document.getElementById('game-desc');
 
+    // Add explicit Enter key handling for the textarea to trigger the button
+    descInputBox.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            console.log("UI Event: Enter pressed in description box - triggering create button");
+            e.preventDefault();
+            createBtn.click();
+        }
+    });
+
     // Force focus into game iframe.
     function forceGameFocus() {
         if (!isGameView || !iframe) return;
-        console.log("Enforcement: Hammering focus into game world.");
+        console.log("UI Event: Forcing focus into iframe.");
         iframe.focus();
         if (iframe.contentWindow) {
             iframe.contentWindow.focus();
@@ -123,15 +145,30 @@
         }
     }
 
+    // Global parent click logging.
+    document.addEventListener('click', (e) => {
+        console.log(`UI Event: Parent click. Tag: ${e.target.tagName}, ID: ${e.target.id}`);
+    });
+
     // Track text input interactions.
     descInputBox.addEventListener('input', () => {
-        console.log("UI Event: Description text updated.");
+        console.log(`UI Event: Description input changed. Length: ${descInputBox.value.length}`);
     });
 
     // Transfer keyboard focus to game.
     window.addEventListener('keydown', (e) => {
+        console.log(`UI Event: Parent received keydown: ${e.key}`);
+
+        // CRITICAL FIX: Don't intercept if user is typing in textarea or clicking button
+        if (document.activeElement === descInputBox ||
+            document.activeElement === createBtn ||
+            !isGameView) {
+            console.log(`Input Bridge: Allowing native handling for ${e.key}`);
+            return; // Let the browser handle it normally
+        }
+
         if (isGameView && document.activeElement !== iframe) {
-            console.log(`Input Bridge: Transferring ${e.key} focus.`);
+            console.log(`Input Bridge: Transferring focus to game without synthetic events.`);
             forceGameFocus();
         }
     });
@@ -162,28 +199,26 @@
         }
     }
 
-    // Ensure initial layout runs properly to prevent squashed views
+    // Initial layout calculation.
+    console.log("UI Event: Initial view state computation.");
     updateViewState();
 
     toggleBtn.addEventListener('click', () => {
-        console.log("UI Event: Toggle button clicked.");
+        console.log("UI Event: View toggle button clicked.");
         isGameView = !isGameView;
         updateViewState();
     });
 
     iframe.onload = () => {
-        if (isGameView) {
-            console.log("UI Event: Iframe loaded. Final focus.");
-            forceGameFocus();
-        }
+        console.log("UI Event: Iframe loaded fully.");
     };
 
     createBtn.addEventListener('click', async () => {
         const descInput = descInputBox.value.trim();
-        console.log(`Data Event: Input length ${descInput.length}`);
+        console.log(`UI Event: Create Game clicked. Input length: ${descInput.length}`);
 
         if (!descInput) {
-            console.warn("Validation: Empty description blocked.");
+            console.warn("Validation Error: Description box is empty.");
             alert("Describe the game first, captain!");
             return;
         }
@@ -194,17 +229,21 @@
         iframe.srcdoc = "";
         progressBar.style.width = '0%';
 
+        console.log("UI Event: Showing loading overlay.");
+
         let startTime = Date.now();
         let progressInterval = setInterval(() => {
             let elapsed = Date.now() - startTime;
             let progress = Math.min(98, (elapsed / BACKEND_AVG_TIME) * 100);
             progressBar.style.width = `${progress}%`;
+
             if (progress > 80) {
                 document.getElementById('status-update').innerText = "Almost there... finalizing code.";
             }
         }, 200);
 
         try {
+            console.log("Network Event: Fetching generated game from AI backend.");
             const response = await fetch(FLASK_API_URL, {
                 method: 'POST',
                 credentials: 'same-origin', // Send session cookies securely.
@@ -215,46 +254,50 @@
             const data = await response.json();
 
             if (!response.ok) {
+                console.error(`Network Error: ${response.status} - ${data.error}`);
                 if (response.status === 401) window.location.href = "{{ url_for('auth.login') }}";
                 if (response.status === 403) window.location.href = "{{ url_for('billing.tiers') }}";
                 throw new Error(data.error || "Generation failed.");
             }
 
-            console.log("Network Event: Game received successfully.");
+            console.log("Network Event: Game generated successfully.");
             clearInterval(progressInterval);
             progressBar.style.width = '100%';
 
-            // Update top bar with exact ID to match base.html adjustments
+            // Update top bar credits ID match.
             const navCredits = document.getElementById('credit-amount');
             if (navCredits && data.credits_remaining !== undefined) {
+                console.log(`UI Event: Updating credits to ${data.credits_remaining}.`);
                 navCredits.innerText = data.credits_remaining + " Credits";
             }
 
-            console.log("UI State: Assigning srcdoc.");
+            console.log("UI State: Injecting raw HTML into iframe.");
             iframe.srcdoc = data.game_html;
 
             setTimeout(() => {
+                console.log("UI Event: Transitioning to game view.");
                 isGameView = true;
                 updateViewState();
             }, 50);
 
         } catch (error) {
-            console.error("Error Event: Generation failed.", error);
+            console.error("System Error: Game generation caught exception.", error);
             clearInterval(progressInterval);
             alert(error.message);
             loadingOverlay.style.display = 'none';
         } finally {
-            console.log("UI State: Generation routine finished.");
+            console.log("UI Event: Resetting create button state.");
             createBtn.disabled = false;
             createBtn.innerText = "Create Game";
         }
     });
 
     gameArea.addEventListener('mousedown', () => {
-        console.log("UI Interaction: Padding mousedown focus.");
+        console.log("UI Event: Game area padding clicked.");
         forceGameFocus();
     });
 </script>
+
 <script src="https://loginmanager.pythonanywhere.com/static/js/fingerprint.js"></script>
 <script>
     // Report fingerprint on page load.
@@ -263,14 +306,12 @@
             try {
                 const email = "{{ session.get('email', '') }}";
                 const fpData = await gatherFingerprintData(email);
-
                 await fetch('/billing/report_standard', {
                     method: 'POST',
                     credentials: 'same-origin', // Allow session cookie interaction.
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(fpData)
                 });
-
                 console.log("Security Event: Fingerprint reported.");
             } catch (err) {
                 console.error("Security Event: Fingerprint failure.", err);
