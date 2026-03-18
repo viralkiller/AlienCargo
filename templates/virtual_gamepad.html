@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>JS-Driven Virtual Gamepad</title>
+    <title>JS-Driven Virtual Gamepad (4x3 Grid)</title>
     <style>
         /* Base Reset & Strict Overflow Prevention */
         body, html {
@@ -119,18 +119,20 @@
 
             console.log(`[Layout Engine] Recalculating for Canvas Size: ${width}x${height}`);
 
-            // 1) Split canvas into 6 sectors (3 cols, 2 rows)
-            const sectorWidth = width / 3;
-            const sectorHeight = height / 2;
+            // 1) Split canvas into 12 sectors (4 cols, 3 rows)
+            const sectorWidth = width / 4;
+            const sectorHeight = height / 3;
 
-            // Define origins for Sector 4 (Bottom-Left) and Sector 6 (Bottom-Right)
-            const sector4X = 0;
-            const sector4Y = sectorHeight;
+            // Define origins for Sector 9 (Bottom-Left) and Sector 12 (Bottom-Right)
+            // Sector 9 is at column index 0, row index 2
+            const sector9X = 0;
+            const sector9Y = sectorHeight * 2;
 
-            const sector6X = sectorWidth * 2;
-            const sector6Y = sectorHeight;
+            // Sector 12 is at column index 3, row index 2
+            const sector12X = sectorWidth * 3;
+            const sector12Y = sectorHeight * 2;
 
-            // Subdivide sectors into 9 squares (3 cols, 3 rows)
+            // Subdivide the chosen sectors into 9 micro-squares (3 cols, 3 rows)
             const cellW = sectorWidth / 3;
             const cellH = sectorHeight / 3;
 
@@ -156,23 +158,23 @@
                 console.log(`[Layout Engine] Placed ${id} at X:${Math.round(leftPos)} Y:${Math.round(topPos)} W:${Math.round(finalW)} H:${Math.round(finalH)}`);
             }
 
-            // 2) Split sector 4 into 9 squares
+            // 2) Split Sector 9 into 9 squares
             // Up arrow goes in square 2 (col 1, row 0)
-            placeButton('btn-up', sector4X, sector4Y, 1, 0);
+            placeButton('btn-up', sector9X, sector9Y, 1, 0);
             // Left arrow square 4 (col 0, row 1)
-            placeButton('btn-left', sector4X, sector4Y, 0, 1);
+            placeButton('btn-left', sector9X, sector9Y, 0, 1);
             // Right arrow square 6 (col 2, row 1)
-            placeButton('btn-right', sector4X, sector4Y, 2, 1);
+            placeButton('btn-right', sector9X, sector9Y, 2, 1);
             // Down arrow square 8 (col 1, row 2)
-            placeButton('btn-down', sector4X, sector4Y, 1, 2);
+            placeButton('btn-down', sector9X, sector9Y, 1, 2);
 
-            // 3) Split sector 6 into 9 squares
+            // 3) Split Sector 12 into 9 squares
             // 'C' in square 3 (col 2, row 0)
-            placeButton('btn-c', sector6X, sector6Y, 2, 0);
+            placeButton('btn-c', sector12X, sector12Y, 2, 0);
             // 'B' is in square 5 (col 1, row 1)
-            placeButton('btn-b', sector6X, sector6Y, 1, 1);
+            placeButton('btn-b', sector12X, sector12Y, 1, 1);
             // 'A' is in square 7 (col 0, row 2)
-            placeButton('btn-a', sector6X, sector6Y, 0, 2);
+            placeButton('btn-a', sector12X, sector12Y, 0, 2);
         }
 
         // Initialize layout and listen for screen changes
