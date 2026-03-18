@@ -11,7 +11,9 @@
     "Section 4 (bottom-left): Cross-shaped D-pad (Up, Down, Left, Right).",
     "Section 6 (bottom-right): Circular A, B, C buttons arranged in a diagonal line (bottom-left to top-right).",
     "So mobile version is just a mini version of the desktop - using a virtual gamepad instead.",
+    "Must feature a Start Game button that can be clicked/tapped.",
     "MUST feature clickable Restart/Go again button upon Game Over.",
-    "Use CSS flex/grid and JS enforcement for pixel perfect positioning of elements."
+    "Use CSS flex/grid and JS enforcement for pixel perfect positioning of elements.",
+    "Make sure the game code does not exceed 8000 tokens! - Very important!"
   ]
 }

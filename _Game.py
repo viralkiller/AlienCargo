@@ -167,11 +167,11 @@ def generate_game():
 
         payload = {
             "provider": "anthropic",
-            "model_key": "claude-sonnet-4-5-20250929",
+            "model_key": "claude-opus-4-6",
             "query": description,
             "parameters": {
                 "instructions": system_instructions,
-                "max_tokens": 16000
+                "max_tokens": 8000
             }
         }
 

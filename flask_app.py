@@ -55,6 +55,10 @@ def create_app():
 
         return render_template('blog.html', blog_data=blog_data)
 
+    @app.route('/virtual_gamepad')
+    def virtual_gamepad():
+        return render_template('virtual_gamepad.html')
+
     return app
 
 app = create_app()
