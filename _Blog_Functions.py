@@ -19,7 +19,6 @@ class Blog_Functions:
         self.creation_time_limit = 1 * 3600
         self.topics = [
             "Where can I find an AI game generator?",
-
         ]
         self.author = 'James Gordon'
         self.blog_data_path = 'static/json/blog_data/blog_data.json'
@@ -37,6 +36,7 @@ class Blog_Functions:
             return []
 
         blog_data = [] # Initialize as empty list
+
         try:
             with open(self.blog_data_path, 'r', encoding='utf-8') as file:
                 content = file.read()
@@ -74,6 +74,7 @@ class Blog_Functions:
             payload = {'topic': topic, 'author': self.author}
             response = requests.post(self.api_url, json=payload, timeout=120)
             response.raise_for_status()
+
             blog_entry = response.json()
             print(f"DEBUG: Successfully received blog data from microservice for topic '{topic}'.")
 
@@ -89,6 +90,7 @@ class Blog_Functions:
             # --------------------------------------------------
 
             return blog_entry
+
         except requests.exceptions.Timeout:
             print(f"ERROR: Blog data request timed out after 120 seconds for topic '{topic}'.")
             return None
@@ -125,6 +127,7 @@ class Blog_Functions:
 
             # Get the timestamp of the *most recent* entry (first in the list)
             last_entry_time = blog_data[0].get('unix_timestamp', 0)
+
             if not isinstance(last_entry_time, (int, float)) or last_entry_time <= 0:
                 print("WARNING: Invalid or missing timestamp in the most recent blog entry. Allowing new entry.")
                 return True
@@ -190,6 +193,7 @@ class Blog_Functions:
     def update_blog_data(self, new_entry):
         """Updates the blog data JSON file with a new entry, prepending it to the list."""
         print("DEBUG: Updating local blog_data.json file with new entry...")
+
         # Read existing data (without modifying URLs here)
         blog_data = self.get_blog_data()
 

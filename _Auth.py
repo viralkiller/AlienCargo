@@ -45,6 +45,7 @@ auth_bp = Blueprint('auth', __name__)
 def heartbeat():
     """Client polling endpoint for session status."""
     token = session.get('token')
+
     # Fail if missing token.
     if not token or not session.get('email'):
         return jsonify({"status": "expired"}), 401
@@ -63,6 +64,7 @@ def heartbeat():
         else:
             response = jsonify({"status": "active", "user": session.get('username')})
             status_code = 200
+
     except jwt.DecodeError:
         current_app.logger.warning("[Heartbeat] Invalid token. Clearing session.")
         session.clear()
@@ -77,6 +79,7 @@ def heartbeat():
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
+
     return response, status_code
 
 @auth_bp.route('/register', methods=['GET', 'POST'])
@@ -127,6 +130,7 @@ def login():
                 headers={"Content-Type": "application/json"},
                 timeout=10,
             )
+
             if resp.status_code == 200:
                 payload = resp.json()
                 token = payload.get("token")
@@ -135,12 +139,12 @@ def login():
                 email = user_info.get("email")
 
                 if not token or not username:
-                      flash("Login failed: Incomplete data.", "danger")
-                      redirect_uri_fail = url_for('auth.handle_login', _external=True)
-                      return redirect(f"{LOGINMANAGER_MICROSERVICE_URL}/login-page?redirect_uri={redirect_uri_fail}&domain={current_domain}")
+                    flash("Login failed: Incomplete data.", "danger")
+                    redirect_uri_fail = url_for('auth.handle_login', _external=True)
+                    return redirect(f"{LOGINMANAGER_MICROSERVICE_URL}/login-page?redirect_uri={redirect_uri_fail}&domain={current_domain}")
 
                 # FIX: Force fetch the domain-specific credits from the microservice.
-                real_credits = 0
+                real_credits = user_info.get("credits_remaining", session.get("credits_remaining", 0))
                 try:
                     cred_req = requests.post(
                         f"{LOGINMANAGER_MICROSERVICE_URL}/get_credits",
@@ -148,7 +152,7 @@ def login():
                         timeout=5
                     )
                     if cred_req.status_code == 200:
-                        real_credits = cred_req.json().get("credits_remaining", 0)
+                        real_credits = cred_req.json().get("credits_remaining", real_credits)
                 except Exception as e:
                     current_app.logger.error(f"[auth.login] Failed to fetch true credits: {e}")
 
@@ -189,6 +193,7 @@ def login():
 def handle_login():
     """Callback for successful authentication."""
     token = request.args.get('token')
+
     if not token:
         flash("Authentication failed: No token.", "danger")
         return redirect(url_for('game.index'))
@@ -213,7 +218,7 @@ def handle_login():
             return redirect(url_for('game.index'))
 
         # FIX: Force fetch the domain-specific credits from the microservice.
-        real_credits = 0
+        real_credits = user_data.get("credits_remaining", session.get("credits_remaining", 0))
         try:
             cred_req = requests.post(
                 f"{LOGINMANAGER_MICROSERVICE_URL}/get_credits",
@@ -221,7 +226,7 @@ def handle_login():
                 timeout=5
             )
             if cred_req.status_code == 200:
-                real_credits = cred_req.json().get("credits_remaining", 0)
+                real_credits = cred_req.json().get("credits_remaining", real_credits)
         except Exception as e:
             current_app.logger.error(f"[auth.handle_login] Failed to fetch true credits: {e}")
 

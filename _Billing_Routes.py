@@ -15,8 +15,6 @@ from urllib.parse import quote
 from _Utils import (
     get_Subdomain, get_user_ip_and_location, TimeFunctions, detect_Device
 )
-
-# Payment-specific modules
 from _Purchase_Manager import Purchase_Manager
 from _AESCipher import AESCipher
 
@@ -32,11 +30,11 @@ billing_bp = Blueprint("billing", __name__)
 
 # -----------------------------------------------------------------------------
 # Fingerprint proxy endpoint (recommended frontend target)
-# FIX: Hardcoded /billing/ prefix since we removed it from the blueprint registration.
 @billing_bp.route("/billing/report_standard", methods=["POST"])
 def report_standard():
     """Receives fingerprint metadata. Forwards to LoginManager."""
     current_app.logger.info("[Billing] Invoked report_standard endpoint.")
+
     try:
         # Parse Request Data.
         data = request.get_json(force=True)
@@ -100,6 +98,7 @@ def report_standard():
             timeout=10,
         )
         r.raise_for_status()
+
         current_app.logger.info("[Billing] Fingerprint payload sent successfully.")
         return jsonify(remote_response=r.json()), 200
 
@@ -124,7 +123,6 @@ def report_credit_usage():
 
         current_app.logger.info(f"--- [BILLING] Credit Usage Reported ---")
         current_app.logger.info(f"User: {user_id} | Amount: {amount}")
-
         return jsonify({"status": "success", "message": "Usage logged"}), 200
     except Exception as e:
         current_app.logger.error(f"!!! [BILLING ERROR] Usage report failed: {e}")
@@ -158,6 +156,7 @@ def get_credits():
         )
         r.raise_for_status()
         credits = r.json().get("credits_remaining", 0)
+
         current_app.logger.info(f"[Billing] Credits retrieved: {credits}.")
         return jsonify(credits_remaining=int(float(credits))), 200
     except Exception as exc:
@@ -261,11 +260,11 @@ def tiers():
 # -----------------------------------------------------------------------------
 # Finalization after payment (Stripe/ETH gateways redirect here)
 # -----------------------------------------------------------------------------
-# FIX: Kept at root level to properly catch the external redirect URL.
 @billing_bp.route("/final/<transaction_id>/<status>", methods=["GET", "POST"])
 def final(transaction_id, status):
     current_app.logger.info(f"[final] Resolving payment {transaction_id}.")
     purchase_manager = Purchase_Manager()
+
     email = session.get("email")
     domain = get_Subdomain()
 
@@ -302,6 +301,7 @@ def final(transaction_id, status):
             username = session.get("username")
 
             current_app.logger.info(f"[final] Processing {purchased_credits} credits via Purchase Manager.")
+
             success, _ = purchase_manager.process_payment(
                 username=username,
                 transaction_id=transaction_id,
@@ -327,9 +327,10 @@ def final(transaction_id, status):
             current_balance = session.get("credits_remaining", 0)
             session["credits_remaining"] = current_balance + purchased_credits
             session.modified = True
-            current_app.logger.info(f"[final] Session balance updated to {session['credits_remaining']}.")
 
+            current_app.logger.info(f"[final] Session balance updated to {session['credits_remaining']}.")
             flash("Purchase successful! Your credits have been added.", "success")
+
         else:
             current_app.logger.info(f"[final] Payment status was '{clean_status}'. Redirecting to issue page.")
             return render_template("billing_issue.html")
