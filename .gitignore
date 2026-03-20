@@ -36,3 +36,11 @@ Thumbs.db
 # IPython Notebook.
 .ipynb
 .ipython/
+
+user_data/
+temp_data/
+tmp/
+static/json/blog_data/
+
+
+

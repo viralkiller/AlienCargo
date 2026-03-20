@@ -1,14 +1,13 @@
 {% extends "base.html" %}
-
 {% block head %}
 <style>
     #app-container {
-        display: grid;
-        grid-template-columns: repeat(32, 1fr);
-        grid-template-rows: calc(100vh - 48px);
+        display: flex;
+        flex-direction: row-reverse; /* Defaults to Prompt Area on left, toggle on right */
         width: 100vw;
-        overflow: hidden;
+        height: calc(100vh - 48px); /* Account for top bar */
         margin-top: 48px;
+        overflow: hidden;
     }
 
     #toggle-btn {
@@ -20,11 +19,10 @@
         font-size: 20px;
         z-index: 100;
         height: 100%;
-        width: 100%;
+        width: 40px; /* Fixed width prevents grid-crushing */
+        flex-shrink: 0;
     }
-
     #toggle-btn:hover { background: #00d2ff; }
-
     iframe {
         border: none;
         background-color: #000;
@@ -32,7 +30,6 @@
         width: 100%;
         height: 100%;
     }
-
     #prompt-area {
         display: flex;
         flex-direction: column;
@@ -41,8 +38,9 @@
         padding: 20px;
         box-sizing: border-box;
         position: relative;
+        flex-grow: 1;
+        width: calc(100vw - 40px);
     }
-
     #game-desc {
         width: 100%;
         max-width: 600px;
@@ -53,7 +51,6 @@
         padding: 10px;
         border: 1px solid #333;
     }
-
     #create-btn {
         padding: 10px 20px;
         background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
@@ -62,38 +59,37 @@
         cursor: pointer;
         font-weight: bold;
     }
-
     #game-area {
         margin: 0;
-        padding: 16px;
+        padding: 0;
         box-sizing: border-box;
         display: flex;
         justify-content: center;
         align-items: center;
         background: #000;
+        flex-grow: 1;
+        width: calc(100vw - 40px);
+        min-width: 0;
+        /* Critical for flex shrinking */
+        min-height: 0;
     }
-
     #game-frame {
-        width: 1280px;
-        height: 720px;
-        max-width: 100%;
-        max-height: 100%;
+        width: 100%;
+        height: 100%;
+        max-width: 1280px;
+        max-height: 720px;
         box-shadow: 0 0 20px rgba(0, 210, 255, 0.2);
     }
 </style>
 {% endblock %}
-
 {% block content %}
 <div id="app-container">
     <button id="toggle-btn" title="Toggle View">&lt;</button>
-
     <div id="prompt-area">
         <h1 style="color: #00d2ff; margin-bottom: 5px;">Alien Cargo 🛸</h1>
         <p style="color: #aaa; margin-top: 0;">AI-Powered Instant Game Generator</p>
-
         <textarea id="game-desc" placeholder="Describe your game..." maxlength="2000"></textarea>
         <button id="create-btn">Create Game</button>
-
         <div id="loading" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); color: #00d2ff; flex-direction: column; justify-content: center; align-items: center; z-index: 10;">
             <h2 id="loading-text" style="margin-bottom: 20px;">Engaging Hyperdrive...</h2>
             <div id="progress-container" style="width: 80%; max-width: 400px; height: 12px; background: #222; border-radius: 6px; overflow: hidden; border: 1px solid #333;">
@@ -102,30 +98,28 @@
             <p id="status-update" style="margin-top: 15px; color: #666; font-size: 12px;">Syncing with AIManager...</p>
         </div>
     </div>
-
     <div id="game-area" style="display: none;">
-        <iframe id="game-frame"
-                tabindex="0"
-                src="about:blank">
-        </iframe>
+        <iframe id="game-frame" tabindex="0" src="about:blank"></iframe>
     </div>
 </div>
-
 <script>
     const FLASK_API_URL = "/generate_game";
-    let isGameView = false;
-    const BACKEND_AVG_TIME = {{ avg_time|default(15000)|int }};
 
+    // Safely inject the pre-loaded game from the backend
+    const initialGameHTML = {{ initial_game_html | default('""') | tojson | safe }};
+    let isGameView = false;
+
+    const BACKEND_AVG_TIME = {{ avg_time|default(15000)|int }};
+    const appContainer = document.getElementById('app-container');
     const toggleBtn = document.getElementById('toggle-btn');
     const promptArea = document.getElementById('prompt-area');
     const gameArea = document.getElementById('game-area');
     const iframe = document.getElementById('game-frame');
+
     const createBtn = document.getElementById('create-btn');
     const progressBar = document.getElementById('progress-bar');
     const loadingOverlay = document.getElementById('loading');
     const descInputBox = document.getElementById('game-desc');
-
-    // Add explicit Enter key handling for the textarea to trigger the button
     descInputBox.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             console.log("UI Event: Enter pressed in description box - triggering create button");
@@ -133,8 +127,6 @@
             createBtn.click();
         }
     });
-
-    // Force focus into game iframe.
     function forceGameFocus() {
         if (!isGameView || !iframe) return;
         console.log("UI Event: Forcing focus into iframe.");
@@ -144,79 +136,67 @@
             iframe.contentWindow.postMessage({ type: 'engine_focus' }, '*');
         }
     }
-
-    // Global parent click logging.
     document.addEventListener('click', (e) => {
         console.log(`UI Event: Parent click. Tag: ${e.target.tagName}, ID: ${e.target.id}`);
     });
-
-    // Track text input interactions.
     descInputBox.addEventListener('input', () => {
         console.log(`UI Event: Description input changed. Length: ${descInputBox.value.length}`);
     });
-
-    // Transfer keyboard focus to game.
     window.addEventListener('keydown', (e) => {
         console.log(`UI Event: Parent received keydown: ${e.key}`);
-
-        // CRITICAL FIX: Don't intercept if user is typing in textarea or clicking button
-        if (document.activeElement === descInputBox ||
-            document.activeElement === createBtn ||
-            !isGameView) {
+        if (document.activeElement === descInputBox || document.activeElement === createBtn || !isGameView) {
             console.log(`Input Bridge: Allowing native handling for ${e.key}`);
-            return; // Let the browser handle it normally
+            return;
         }
-
         if (isGameView && document.activeElement !== iframe) {
             console.log(`Input Bridge: Transferring focus to game without synthetic events.`);
             forceGameFocus();
         }
     });
-
-    // Update UI view states.
     function updateViewState() {
         console.log(`UI Event: View state -> Game:${isGameView}`);
         if (isGameView) {
-            toggleBtn.style.gridColumn = '1 / 2';
             toggleBtn.innerHTML = '&gt;';
             promptArea.style.display = 'none';
             gameArea.style.display = 'flex';
-            gameArea.style.gridColumn = '2 / 33';
-            gameArea.style.gridRow = '1';
-            loadingOverlay.style.display = 'none';
-
+            appContainer.style.flexDirection = 'row'; // Toggle left, Game right
             requestAnimationFrame(() => {
                 setTimeout(forceGameFocus, 10);
                 setTimeout(forceGameFocus, 300);
             });
         } else {
-            toggleBtn.style.gridColumn = '32 / 33';
             toggleBtn.innerHTML = '&lt;';
             promptArea.style.display = 'flex';
-            promptArea.style.gridColumn = '1 / 32';
-            promptArea.style.gridRow = '1';
             gameArea.style.display = 'none';
+            appContainer.style.flexDirection = 'row-reverse'; // Toggle right, Prompt left
         }
     }
-
-    // Initial layout calculation.
     console.log("UI Event: Initial view state computation.");
-    updateViewState();
+
+    // Auto-load logic
+    if (initialGameHTML && initialGameHTML.trim() !== "") {
+        console.log("UI Event: Found recent game history, loading into iframe immediately.");
+        isGameView = true;
+        updateViewState();
+        setTimeout(() => {
+            iframe.srcdoc = initialGameHTML;
+            forceGameFocus();
+        }, 100);
+    } else {
+        updateViewState();
+    }
 
     toggleBtn.addEventListener('click', () => {
         console.log("UI Event: View toggle button clicked.");
         isGameView = !isGameView;
         updateViewState();
     });
-
     iframe.onload = () => {
         console.log("UI Event: Iframe loaded fully.");
     };
-
     createBtn.addEventListener('click', async () => {
         const descInput = descInputBox.value.trim();
         console.log(`UI Event: Create Game clicked. Input length: ${descInput.length}`);
-
         if (!descInput) {
             console.warn("Validation Error: Description box is empty.");
             alert("Describe the game first, captain!");
@@ -228,58 +208,50 @@
         loadingOverlay.style.display = 'flex';
         iframe.srcdoc = "";
         progressBar.style.width = '0%';
-
         console.log("UI Event: Showing loading overlay.");
-
         let startTime = Date.now();
         let progressInterval = setInterval(() => {
             let elapsed = Date.now() - startTime;
+
             let progress = Math.min(98, (elapsed / BACKEND_AVG_TIME) * 100);
             progressBar.style.width = `${progress}%`;
-
             if (progress > 80) {
                 document.getElementById('status-update').innerText = "Almost there... finalizing code.";
             }
         }, 200);
-
         try {
             console.log("Network Event: Fetching generated game from AI backend.");
             const response = await fetch(FLASK_API_URL, {
                 method: 'POST',
-                credentials: 'same-origin', // Send session cookies securely.
+                credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ description: descInput })
             });
-
             const data = await response.json();
-
             if (!response.ok) {
                 console.error(`Network Error: ${response.status} - ${data.error}`);
                 if (response.status === 401) window.location.href = "{{ url_for('auth.login') }}";
                 if (response.status === 403) window.location.href = "{{ url_for('billing.tiers') }}";
                 throw new Error(data.error || "Generation failed.");
             }
-
             console.log("Network Event: Game generated successfully.");
             clearInterval(progressInterval);
             progressBar.style.width = '100%';
-
-            // Update top bar credits ID match.
+            loadingOverlay.style.display = 'none';
             const navCredits = document.getElementById('credit-amount');
             if (navCredits && data.credits_remaining !== undefined) {
                 console.log(`UI Event: Updating credits to ${data.credits_remaining}.`);
                 navCredits.innerText = data.credits_remaining + " Credits";
             }
-
-            console.log("UI State: Injecting raw HTML into iframe.");
-            iframe.srcdoc = data.game_html;
-
+            console.log("UI Event: Transitioning view state to Game View BEFORE injecting HTML.");
+            isGameView = true;
+            updateViewState();
             setTimeout(() => {
-                console.log("UI Event: Transitioning to game view.");
-                isGameView = true;
-                updateViewState();
+                console.log("UI State: Injecting raw HTML into visible iframe.");
+                iframe.srcdoc = data.game_html;
+                console.log("UI Event: Game injection complete. Firing forced focus.");
+                forceGameFocus();
             }, 50);
-
         } catch (error) {
             console.error("System Error: Game generation caught exception.", error);
             clearInterval(progressInterval);
@@ -291,27 +263,40 @@
             createBtn.innerText = "Create Game";
         }
     });
-
     gameArea.addEventListener('mousedown', () => {
         console.log("UI Event: Game area padding clicked.");
         forceGameFocus();
     });
 </script>
-
-<script src="https://loginmanager.pythonanywhere.com/static/js/fingerprint.js"></script>
+<script src="[https://loginmanager.pythonanywhere.com/static/js/fingerprint.js](https://loginmanager.pythonanywhere.com/static/js/fingerprint.js)"></script>
 <script>
-    // Report fingerprint on page load.
     document.addEventListener('DOMContentLoaded', async () => {
+        // Added UI Interaction Logging for text area focus states
+        const descInputBox = document.getElementById('game-desc');
+        if (descInputBox) {
+            descInputBox.addEventListener('focus', () => console.log('UI Event: Description input focused.'));
+            descInputBox.addEventListener('blur', () => console.log('UI Event: Description input lost focus.'));
+        }
+
         if (typeof gatherFingerprintData === 'function') {
+            // [FIX] Prevent spamming the LoginManager on every single page load to reduce overload
+            if (sessionStorage.getItem('fp_reported') === 'true') {
+                console.log("Security Event: Fingerprint already reported this session. Skipping to reduce LoginManager load.");
+                return;
+            }
+
             try {
                 const email = "{{ session.get('email', '') }}";
                 const fpData = await gatherFingerprintData(email);
                 await fetch('/billing/report_standard', {
                     method: 'POST',
-                    credentials: 'same-origin', // Allow session cookie interaction.
+                    credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(fpData)
                 });
+
+                // Mark as reported for the lifecycle of the browser tab
+                sessionStorage.setItem('fp_reported', 'true');
                 console.log("Security Event: Fingerprint reported.");
             } catch (err) {
                 console.error("Security Event: Fingerprint failure.", err);

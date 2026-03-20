@@ -21,7 +21,7 @@ from _AESCipher import AESCipher
 # -----------------------------------------------------------------------------
 # External service endpoints
 # -----------------------------------------------------------------------------
-LOGINMANAGER_MICROSERVICE_URL = "https://loginmanager.pythonanywhere.com"
+LOGINMANAGER_MICROSERVICE_URL = "[https://loginmanager.pythonanywhere.com](https://loginmanager.pythonanywhere.com)"
 
 # -----------------------------------------------------------------------------
 # Blueprint
@@ -34,7 +34,6 @@ billing_bp = Blueprint("billing", __name__)
 def report_standard():
     """Receives fingerprint metadata. Forwards to LoginManager."""
     current_app.logger.info("[Billing] Invoked report_standard endpoint.")
-
     try:
         # Parse Request Data.
         data = request.get_json(force=True)
@@ -98,7 +97,6 @@ def report_standard():
             timeout=10,
         )
         r.raise_for_status()
-
         current_app.logger.info("[Billing] Fingerprint payload sent successfully.")
         return jsonify(remote_response=r.json()), 200
 
@@ -120,7 +118,6 @@ def report_credit_usage():
         data = request.get_json(force=True, silent=True) or {}
         amount = data.get('amount', 0)
         user_id = session.get("email") or "Unknown"
-
         current_app.logger.info(f"--- [BILLING] Credit Usage Reported ---")
         current_app.logger.info(f"User: {user_id} | Amount: {amount}")
         return jsonify({"status": "success", "message": "Usage logged"}), 200
@@ -154,14 +151,20 @@ def get_credits():
         r = requests.post(
             f"{LOGINMANAGER_MICROSERVICE_URL}/get_credits", json=payload, timeout=5
         )
-        r.raise_for_status()
-        credits = r.json().get("credits_remaining", 0)
+        # [FIX] Prevent 502 cascades. Return the cached session balance if the request drops.
+        if r.status_code == 200:
+            credits = r.json().get("credits_remaining", 0)
+            session['credits_remaining'] = int(float(credits))
+            session.modified = True
+            current_app.logger.info(f"[Billing] Credits retrieved: {credits}.")
+            return jsonify(credits_remaining=int(float(credits))), 200
+        else:
+            current_app.logger.warning(f"[Billing] Gateway degraded ({r.status_code}). Using session balance.")
+            return jsonify(credits_remaining=session.get('credits_remaining', 0)), 200
 
-        current_app.logger.info(f"[Billing] Credits retrieved: {credits}.")
-        return jsonify(credits_remaining=int(float(credits))), 200
     except Exception as exc:
-        current_app.logger.error("[Billing] get_credits failed: %s", exc)
-        return jsonify(error="Unable to fetch credits"), 502
+        current_app.logger.error(f"[Billing] get_credits failed: {exc}. Using session balance.")
+        return jsonify(credits_remaining=session.get('credits_remaining', 0)), 200
 
 # -----------------------------------------------------------------------------
 # Pricing / tiers
@@ -214,7 +217,6 @@ def tiers():
 
         pending_txs = session.get("pending_transactions", {})
         pending_txs = clean_stale_transactions(pending_txs)
-
         pending_txs[tid] = {
             "credits": cr,
             "price": pr,
@@ -264,7 +266,6 @@ def tiers():
 def final(transaction_id, status):
     current_app.logger.info(f"[final] Resolving payment {transaction_id}.")
     purchase_manager = Purchase_Manager()
-
     email = session.get("email")
     domain = get_Subdomain()
 
@@ -327,7 +328,6 @@ def final(transaction_id, status):
             current_balance = session.get("credits_remaining", 0)
             session["credits_remaining"] = current_balance + purchased_credits
             session.modified = True
-
             current_app.logger.info(f"[final] Session balance updated to {session['credits_remaining']}.")
             flash("Purchase successful! Your credits have been added.", "success")
 

@@ -1,0 +1,166 @@
+<style>
+    /* Hide the gamepad entirely if the device has a mouse/fine-pointer (Desktop) */
+    @media (pointer: fine) {
+        #gamepad-overlay {
+            display: none !important;
+        }
+    }
+
+    /* FIX: Force mobile browsers to ignore scroll/zoom gestures over the game area */
+    body, html {
+        touch-action: none !important;
+    }
+
+    #gamepad-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 10000;
+        touch-action: none;
+    }
+    .pad-btn {
+        position: absolute;
+        background: rgba(255, 255, 255, 0.15);
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        color: rgba(255, 255, 255, 0.8);
+        font-weight: bold;
+        font-size: 1.5rem;
+        user-select: none;
+        touch-action: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: auto;
+        box-sizing: border-box;
+    }
+    .pad-btn.active {
+        background: rgba(0, 255, 204, 0.5);
+        border-color: rgba(0, 255, 204, 1);
+        color: #fff;
+    }
+    .action-btn {
+        border-radius: 50%;
+    }
+    #btn-up { border-radius: 8px 8px 4px 4px; }
+    #btn-left { border-radius: 8px 4px 4px 8px; }
+    #btn-right { border-radius: 4px 8px 8px 4px; }
+    #btn-down { border-radius: 4px 4px 8px 8px; }
+</style>
+<div id="gamepad-overlay">
+    <div id="btn-up" class="pad-btn" data-key="ArrowUp">▲</div>
+    <div id="btn-left" class="pad-btn" data-key="ArrowLeft">◀</div>
+    <div id="btn-right" class="pad-btn" data-key="ArrowRight">▶</div>
+    <div id="btn-down" class="pad-btn" data-key="ArrowDown">▼</div>
+    <div id="btn-a" class="pad-btn action-btn" data-key="KeyZ">A</div>
+    <div id="btn-b" class="pad-btn action-btn" data-key="KeyX">B</div>
+    <div id="btn-c" class="pad-btn action-btn" data-key="KeyC">C</div>
+</div>
+<script>
+    const buttons = document.querySelectorAll('.pad-btn');
+    const overlay = document.getElementById('gamepad-overlay');
+
+    function calculateAndApplyLayout() {
+        if (!overlay || window.matchMedia("(pointer: fine)").matches) {
+            console.log("[UI Logic] Layout Engine aborted: Mouse device detected or overlay missing.");
+            return;
+        }
+
+        const width = overlay.clientWidth;
+        const height = overlay.clientHeight;
+        console.log(`[UI Layout] Recalculating grid for Canvas Size: ${width}x${height}`);
+
+        const sectorWidth = width / 4;
+        const sectorHeight = height / 3;
+
+        const sector9X = 0, sector9Y = sectorHeight * 2;
+        const sector12X = sectorWidth * 3, sector12Y = sectorHeight * 2;
+
+        const cellW = sectorWidth / 3, cellH = sectorHeight / 3;
+        const p = Math.min(cellW, cellH) * 0.1;
+
+        function placeButton(id, sectorX, sectorY, col, row) {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+            const leftPos = sectorX + (col * cellW) + p;
+            const topPos = sectorY + (row * cellH) + p;
+            const finalW = cellW - (p * 2), finalH = cellH - (p * 2);
+
+            btn.style.left = `${leftPos}px`;
+            btn.style.top = `${topPos}px`;
+            btn.style.width = `${finalW}px`;
+            btn.style.height = `${finalH}px`;
+            console.log(`[UI Render] Placed element '${id}' at X:${Math.round(leftPos)} Y:${Math.round(topPos)}`);
+        }
+
+        placeButton('btn-up', sector9X, sector9Y, 1, 0);
+        placeButton('btn-left', sector9X, sector9Y, 0, 1);
+        placeButton('btn-right', sector9X, sector9Y, 2, 1);
+        placeButton('btn-down', sector9X, sector9Y, 1, 2);
+
+        placeButton('btn-c', sector12X, sector12Y, 2, 0);
+        placeButton('btn-b', sector12X, sector12Y, 1, 1);
+        placeButton('btn-a', sector12X, sector12Y, 0, 2);
+    }
+
+    window.addEventListener('resize', () => {
+        console.log("[UI Event] Window 'resize' detected. Triggering layout engine.");
+        calculateAndApplyLayout();
+    });
+
+    setTimeout(() => {
+        console.log("[UI Event] Initial layout generation timeout complete.");
+        calculateAndApplyLayout();
+    }, 100);
+
+    const activeKeys = new Set();
+
+    function triggerSyntheticKey(type, keyName) {
+        console.log(`[Input System] Firing synthetic KeyboardEvent: ${type} -> ${keyName}`);
+        const event = new KeyboardEvent(type, { key: keyName, code: keyName, bubbles: true, cancelable: true });
+        document.dispatchEvent(event);
+    }
+
+    function handleInputStart(e) {
+        if (e.type === 'touchstart') {
+            e.preventDefault();
+        }
+        const btn = e.currentTarget;
+        const key = btn.getAttribute('data-key');
+        if (!activeKeys.has(key)) {
+            activeKeys.add(key);
+            btn.classList.add('active');
+            console.log(`[UI Interaction] Pointer/Touch START on '${btn.id}'. Mapped to: ${key}`);
+            triggerSyntheticKey('keydown', key);
+        }
+    }
+
+    function handleInputEnd(e) {
+        if (e.type === 'touchend' || e.type === 'touchcancel') {
+            e.preventDefault();
+        }
+        const btn = e.currentTarget;
+        const key = btn.getAttribute('data-key');
+        if (activeKeys.has(key)) {
+            activeKeys.delete(key);
+            btn.classList.remove('active');
+            console.log(`[UI Interaction] Pointer/Touch END on '${btn.id}'. Mapped to: ${key}`);
+            triggerSyntheticKey('keyup', key);
+        }
+    }
+
+    buttons.forEach(btn => {
+        btn.addEventListener('pointerdown', handleInputStart);
+        btn.addEventListener('pointerup', handleInputEnd);
+        btn.addEventListener('pointerleave', handleInputEnd);
+        btn.addEventListener('pointercancel', handleInputEnd);
+
+        btn.addEventListener('touchstart', handleInputStart, { passive: false });
+        btn.addEventListener('touchend', handleInputEnd, { passive: false });
+        btn.addEventListener('touchcancel', handleInputEnd, { passive: false });
+
+        console.log(`[Event Binding] Attached interaction listeners to '${btn.id}'`);
+    });
+</script>

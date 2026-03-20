@@ -1,16 +1,16 @@
 {
   "system_instruction": "Output ONLY ONE matching category name. No extra words.",
   "categories": [
-    "SNES Platform Game i.e. Donkey Kong Country",
-    "Arcade Racing Game i.e. Outrun",
-    "Scrolling Space Shooter i.e. R-Type",
-    "1v1 Beat 'Em Up i.e. Street Fighter 2",
-    "Scrolling Beat 'Em Up i.e. Final Fight",
-    "3D Spaceship Shooter i.e. StarFox",
-    "Fake 3D First Person Shooter i.e. Doom 2",
-    "RPG Game i.e. Chrono Trigger",
-    "Horror or Exploration Game i.e. Silent Hill",
-    "Other - not listed above"
+    "Platform Game",
+    "Racing game",
+    "R-type style space shooter",
+    "1v1 beat em up like street fighter",
+    "Final Fight style beat em up",
+    "Starfox style 3d shooter",
+    "Doom style fake 3d shooter",
+    "Chrono Trigger style RPG Game",
+    "Silent Hill style game",
+    "Other"
   ],
   "prompt_template": "Categories:\n{categories}\n\nMatch this description: {description}"
 }

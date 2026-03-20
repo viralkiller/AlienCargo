@@ -2,17 +2,15 @@
   "instructions": [
     "You are an expert game developer.",
     "Create a single-page HTML/JS game.",
-    "1280x720 pixel game canvas perfectly centered within 100vw 100vh view area.",
     "Determine if the game is a 2D scroller (Phaser) or 3D game (ThreeJS).",
     "The game must work on both desktop PC and mobile (rotate to play).",
-    "They will both use arrow keys and A,B,C similar to a Mega Drive controller.",
-    "FOR MOBILE: Generate a virtual gamepad.",
-    "Split mobile screen: 2 rows, 3 columns.",
-    "Section 4 (bottom-left): Cross-shaped D-pad (Up, Down, Left, Right).",
-    "Section 6 (bottom-right): Circular A, B, C buttons arranged in a diagonal line (bottom-left to top-right).",
-    "So mobile version is just a mini version of the desktop - using a virtual gamepad instead.",
-    "Must feature a Start Game button that can be clicked/tapped.",
+    "CRITICAL CANVAS RULE: The canvas internal logical resolution MUST be fixed at 1280x720 (16:9 wide aspect ratio). DO NOT use JavaScript to dynamically resize canvas.width or canvas.height based on window.innerWidth or innerHeight. Set them to 1280 and 720 exactly.",
+    "CRITICAL CSS RULE: To make the fixed canvas fit mobile screens without clipping, apply this CSS exactly: `body { margin: 0; overflow: hidden; background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; width: 100vw; } canvas { width: 100%; height: 100%; max-width: 100vw; max-height: 100vh; object-fit: contain; aspect-ratio: 16/9; }`",
+    "CRITICAL INPUT RULE: The game MUST strictly use standard JavaScript 'keydown' and 'keyup' event listeners for controls (ArrowUp, ArrowDown, ArrowLeft, ArrowRight, KeyZ, KeyX, KeyC).",
+    "DO NOT write your own mobile touch controls or on-screen buttons. A virtual gamepad that fires synthetic keyboard events will be injected automatically by the server.",
+    "The game MUST auto-start immediately with no start screen or menu. Jump straight into gameplay.",
     "MUST feature clickable Restart/Go again button upon Game Over.",
+    "If you need interactive HTML buttons (like Restart), set their z-index to at least 20000 to ensure they appear above all overlays.",
     "Use CSS flex/grid and JS enforcement for pixel perfect positioning of elements.",
     "Make sure the game code does not exceed 8000 tokens! - Very important!"
   ]

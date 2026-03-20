@@ -4,7 +4,8 @@ import time
 import json
 import requests
 import progress_tracker
-from flask import Blueprint, render_template, request, jsonify, session, current_app
+from datetime import datetime
+from flask import Blueprint, render_template, request, jsonify, session, current_app, redirect, url_for
 
 # Initialize game blueprint.
 game_bp = Blueprint('game', __name__)
@@ -56,11 +57,91 @@ def load_md_example(filename):
 def index():
     # Log homepage access.
     current_app.logger.info("Route hit: /")
-
     # Fetch progress tracking data.
     avg_time = progress_tracker.get_average_time()
     current_app.logger.debug(f"Retrieved average generation time: {avg_time}ms")
-    return render_template('index.html', avg_time=avg_time)
+
+    # Auto-load the most recently generated game
+    username = session.get("username")
+    fingerprint = session.get("fingerprint")
+    initial_game = ""
+
+    if username:
+        safe_username = "".join([c for c in username if c.isalnum() or c in ('_', '-')])
+        target_dir = os.path.join(current_app.root_path, 'user_data', safe_username)
+    elif fingerprint:
+        target_dir = os.path.join(current_app.root_path, 'temp_data', fingerprint)
+    else:
+        target_dir = None
+
+    if target_dir and os.path.exists(target_dir):
+        files = [f for f in os.listdir(target_dir) if f.endswith('.json')]
+        if files:
+            # Sort by filename (Unix timestamp) descending to get the newest
+            files.sort(reverse=True)
+            latest_file = os.path.join(target_dir, files[0])
+            try:
+                with open(latest_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    initial_game = data.get('code', '')
+            except Exception as e:
+                current_app.logger.error(f"Failed to load initial game: {e}")
+
+    return render_template('index.html', avg_time=avg_time, initial_game_html=initial_game)
+
+@game_bp.route('/history')
+def history():
+    current_app.logger.info("Route hit: /history")
+    username = session.get("username")
+    if not username:
+        return redirect(url_for('auth.login'))
+
+    safe_username = "".join([c for c in username if c.isalnum() or c in ('_', '-')])
+    target_dir = os.path.join(current_app.root_path, 'user_data', safe_username)
+
+    games = []
+    if os.path.exists(target_dir):
+        files = [f for f in os.listdir(target_dir) if f.endswith('.json')]
+        files.sort(reverse=True)
+        for file in files:
+            filepath = os.path.join(target_dir, file)
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    # Fallback to filename if timestamp is missing
+                    ts = data.get('timestamp', int(file.split('.')[0]))
+                    dt = datetime.fromtimestamp(ts)
+                    games.append({
+                        'filename': file,
+                        'date': dt.strftime('%b %d, %Y - %I:%M %p'),
+                        'class': data.get('class', 'Unknown Category'),
+                        'prompt': data.get('prompt', 'No description provided')[:80] + '...'
+                    })
+            except Exception as e:
+                current_app.logger.error(f"Error reading history file {file}: {e}")
+
+    return render_template('history.html', games=games)
+
+@game_bp.route('/history/<filename>')
+def view_past_game(filename):
+    username = session.get("username")
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    safe_username = "".join([c for c in username if c.isalnum() or c in ('_', '-')])
+    filepath = os.path.join(current_app.root_path, 'user_data', safe_username, filename)
+
+    if not os.path.exists(filepath):
+        return "Game not found", 404
+
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            avg_time = progress_tracker.get_average_time()
+            return render_template('index.html', avg_time=avg_time, initial_game_html=data.get('code', ''))
+    except Exception as e:
+        current_app.logger.error(f"Error loading past game: {e}")
+        return "Error loading game", 500
 
 @game_bp.route('/generate_game', methods=['POST'])
 def generate_game():
@@ -95,11 +176,20 @@ def generate_game():
             json={"domain": request.host.split(":")[0], "fingerprint": fingerprint, "email": session.get("email", "")},
             timeout=5
         )
-        credits_remaining = cred_req.json().get('credits_remaining', 0)
+        # [FIX] Graceful fallback to local session balance if the microservice is overloaded/rate-limited
+        if cred_req.status_code == 200:
+            credits_remaining = cred_req.json().get('credits_remaining', 0)
+            session['credits_remaining'] = credits_remaining
+            session.modified = True
+        else:
+            current_app.logger.warning(f"LoginManager returned {cred_req.status_code}. Falling back to local session balance.")
+            credits_remaining = session.get('credits_remaining', 0)
+
         current_app.logger.debug(f"Credits remaining: {credits_remaining}")
+
     except Exception as e:
-        current_app.logger.error(f"Credit fetch failed for {fingerprint}: {e}")
-        return jsonify({"error": "Failed to verify balance."}), 502
+        current_app.logger.error(f"Credit fetch failed for {fingerprint}: {e}. Falling back to local session balance.")
+        credits_remaining = session.get('credits_remaining', 0)
 
     # Block empty accounts.
     if credits_remaining < 1:
@@ -127,10 +217,15 @@ def generate_game():
         current_app.logger.debug("Dispatching classification request to AIManager.")
         class_response = requests.post(AI_MANAGER_URL, json=class_payload, timeout=30)
         class_response.raise_for_status()
-
         class_data = class_response.json()
         class_outputs = class_data.get('outputs', [])
-        detected_class = class_outputs[0].strip() if class_outputs else "Other"
+
+        # Safely extract text whether it is a string or an Anthropic dictionary block
+        raw_class = class_outputs[0] if class_outputs else "Other"
+        if isinstance(raw_class, dict):
+            detected_class = raw_class.get('text', raw_class.get('content', 'Other')).strip()
+        else:
+            detected_class = str(raw_class).strip()
 
         if detected_class not in EXPERT_FILES:
             current_app.logger.warning(f"Invalid class '{detected_class}' returned by AI. Defaulting to 'Other'.")
@@ -167,33 +262,36 @@ def generate_game():
 
         payload = {
             "provider": "anthropic",
-            "model_key": "claude-opus-4-6",
+            "model_key": "claude-sonnet-4-5-20250929",
             "query": description,
             "parameters": {
                 "instructions": system_instructions,
-                "max_tokens": 8000
+                "max_tokens": 16000
             }
         }
 
         # Dispatch main generation.
         current_app.logger.debug("Dispatching main game generation request to AIManager.")
         start_time = time.time()
-
         response = requests.post(AI_MANAGER_URL, json=payload, timeout=120)
         response.raise_for_status()
-
         manager_data = response.json()
         duration_ms = (time.time() - start_time) * 1000
+
         current_app.logger.info(f"Generation completed successfully. Duration: {duration_ms:.2f}ms.")
-
         progress_tracker.save_time(duration_ms)
-        outputs = manager_data.get('outputs', [])
 
+        outputs = manager_data.get('outputs', [])
         if not outputs:
             current_app.logger.error("Empty AI outputs received from AIManager.")
             raise ValueError("Empty response returned.")
 
-        generated_code = outputs[0]
+        # Safely extract text whether it is a string or an Anthropic dictionary block
+        raw_gen = outputs[0]
+        if isinstance(raw_gen, dict):
+            generated_code = raw_gen.get('text', raw_gen.get('content', ''))
+        else:
+            generated_code = str(raw_gen)
 
         # Strip markdown syntax.
         current_app.logger.debug("Cleaning markdown syntax from generated code.")
@@ -215,7 +313,6 @@ def generate_game():
                 current_app.logger.debug(f"Saving output for guest user fingerprint: {fingerprint}")
 
             os.makedirs(save_dir, exist_ok=True)
-
             # Generate unique filename with Unix timestamp
             unix_timestamp = int(time.time())
             filename = f"{unix_timestamp}.json"
@@ -232,6 +329,7 @@ def generate_game():
             # Save the raw output
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(log_data, f, indent=4)
+
             current_app.logger.info(f"Successfully logged AI output to disk: {filepath}")
         except Exception as log_err:
             current_app.logger.error(f"Failed to save AI output log to disk: {log_err}")
@@ -245,8 +343,8 @@ def generate_game():
             "credits_used": 1,
             "details": "Game Generation"
         }
-
         current_app.logger.debug(f"Requesting credit deduction via record_usage for {fingerprint}.")
+
         cred_resp = requests.post(
             f"{LOGINMANAGER_BASE_URL}/record_usage",
             json=cred_payload, timeout=10

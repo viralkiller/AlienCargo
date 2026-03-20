@@ -570,6 +570,7 @@ if __name__ == "__main__":
         "static/runtime_state",
         "static/libs",
         "static/png",
+        "static/md",
         "user_data",
         "temp_data",
     ]
@@ -586,9 +587,9 @@ if __name__ == "__main__":
         truncate_lines=1650,
         included_extensions=[".html",".py",".js",".json",".md"],
         print_only=[],
-        #exclude_files=[],
-        exclude_files=['_AESCipher.py','_Auth.py','_Billing_Routes.py','_Blog_Functions.py','_Purchase_Manager.py','_Shared.py','_Utils.py',\
-        'billing_issue.html','maintenance.html','tiers.html','.pythonstartup.py','blog.html'],
+        exclude_files=[],
+        #exclude_files=['_AESCipher.py','_Auth.py','_Billing_Routes.py','_Blog_Functions.py','_Purchase_Manager.py','_Shared.py','_Utils.py',\
+        #'billing_issue.html','maintenance.html','tiers.html','.pythonstartup.py','blog.html'],
         include_files=[],
         ignore_dirs=ignore_list,
         description_text="",
