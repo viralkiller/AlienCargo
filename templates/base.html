@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Alien Cargo</title>
     <style>
-        @import url('[https://fonts.googleapis.com/css2?family=Nunito:wght@200;300;400;600;700&display=swap](https://fonts.googleapis.com/css2?family=Nunito:wght@200;300;400;600;700&display=swap)');
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@200;300;400;600;700&display=swap');
         body {
             background-color: #121212;
             color: #ffffff;
@@ -112,15 +112,15 @@
         <div class="top-bar-right">
             <div class="top-bar-item">
                 {% if session.get('token') and session.get('email') %}
-                    <a href="[https://loginmanager.pythonanywhere.com/my-account?token=](https://loginmanager.pythonanywhere.com/my-account?token=){{ session.get('token') }}&domain={{ request.host.split(':')[0] }}" class="top-bar-link user-link">
+                    <a href="https://loginmanager.pythonanywhere.com/my-account?token={{ session.get('token') }}&domain={{ request.host.split(':')[0] }}" class="top-bar-link user-link">
                         <b>{{ session.get('username','Unknown') }}</b>
                     </a>
                     <span class="top-bar-separator">|</span>
                     <a href="{{ url_for('auth.logout') }}" class="top-bar-link">Logout</a>
                 {% else %}
-                    <a href="[https://loginmanager.pythonanywhere.com/login-page?redirect_uri=](https://loginmanager.pythonanywhere.com/login-page?redirect_uri=){{ url_for('auth.handle_login',_external=True) }}&domain={{ request.host.split(':')[0] }}" class="top-bar-link">Login</a>
+                    <a href="https://loginmanager.pythonanywhere.com/login-page?redirect_uri={{ url_for('auth.handle_login',_external=True) }}&domain={{ request.host.split(':')[0] }}" class="top-bar-link">Login</a>
                     <span class="top-bar-separator">|</span>
-                    <a href="[https://loginmanager.pythonanywhere.com/register-page?redirect_uri=](https://loginmanager.pythonanywhere.com/register-page?redirect_uri=){{ url_for('auth.handle_register',_external=True) }}&domain={{ request.host.split(':')[0] }}" class="top-bar-link">Register</a>
+                    <a href="https://loginmanager.pythonanywhere.com/register-page?redirect_uri={{ url_for('auth.handle_register',_external=True) }}&domain={{ request.host.split(':')[0] }}" class="top-bar-link">Register</a>
                 {% endif %}
             </div>
         </div>

@@ -1,0 +1,127 @@
+{
+  "system_instruction": "You are an expert retro pixel artist. Output ONLY a single valid JSON object. No markdown fences, no commentary, no explanations. Each top-level key is a sprite name (use the exact names requested). Each value is an object with two fields: 'palette' and 'grid'. RULES: 1) 'palette' maps SINGLE characters to CSS hex colors (e.g. \"K\": \"#000000\"). The character '.' MUST be included and MUST map to null (transparent). 2) 'grid' is an array of EXACTLY 16 strings, each EXACTLY 16 characters long, using ONLY characters defined in that sprite's palette. 3) Use 4 to 8 colors per sprite. 4) Give sprites a dark outline color so they read clearly against any background. 5) Design ships, faces and characters with left-right symmetry where natural. 6) Leave at least 1 transparent pixel of margin on most edges so sprites do not touch the grid border (tiles like 'tile_ground' or 'tile_wall' are the exception: tiles MUST fill the full 16x16 with NO transparent margin so they can be repeated seamlessly). 7) Match the color mood to the game description (e.g. neon for sci-fi, murky browns/greys for horror).",
+  "prompt_template": "Create 16x16 pixel art sprites for this game.\n\nGame description: {description}\n\nGame category: {category}\n\nRequired sprite names (use these EXACT keys, produce ALL of them):\n{sprite_list}\n\nRemember: output ONLY the JSON object.",
+  "max_tokens": 8000,
+  "manifests": {
+    "Platform Game": [
+      "player_idle",
+      "player_run_1",
+      "player_run_2",
+      "player_jump",
+      "enemy_patroller",
+      "enemy_jumper",
+      "coin",
+      "powerup",
+      "tile_ground",
+      "tile_platform"
+    ],
+    "Racing game": [
+      "player_car",
+      "player_car_left",
+      "player_car_right",
+      "traffic_car_a",
+      "traffic_car_b",
+      "tree",
+      "billboard",
+      "rock"
+    ],
+    "R-type style space shooter": [
+      "player_ship",
+      "satellite_pod",
+      "enemy_swarmer",
+      "enemy_turret",
+      "enemy_ambusher",
+      "boss_segment",
+      "bullet_player",
+      "bullet_enemy",
+      "explosion_1",
+      "explosion_2"
+    ],
+    "1v1 beat em up like street fighter": [
+      "fighter_a_idle",
+      "fighter_a_punch",
+      "fighter_a_kick",
+      "fighter_b_idle",
+      "fighter_b_punch",
+      "fighter_b_kick",
+      "projectile",
+      "hit_spark"
+    ],
+    "Final Fight style beat em up": [
+      "hero_idle",
+      "hero_walk",
+      "hero_punch",
+      "enemy_grunt",
+      "enemy_weapon_user",
+      "enemy_charger",
+      "food_item",
+      "crate",
+      "hit_spark"
+    ],
+    "Starfox style 3d shooter": [
+      "player_ship",
+      "enemy_fighter",
+      "enemy_drone",
+      "boss_core",
+      "laser_bolt",
+      "ring",
+      "asteroid",
+      "explosion_1",
+      "explosion_2"
+    ],
+    "Doom style fake 3d shooter": [
+      "enemy_grunt",
+      "enemy_grunt_attack",
+      "enemy_heavy",
+      "pickup_health",
+      "pickup_ammo",
+      "projectile",
+      "muzzle_flash",
+      "tile_wall",
+      "tile_door"
+    ],
+    "Chrono Trigger style RPG Game": [
+      "hero_down",
+      "hero_up",
+      "hero_side",
+      "party_member",
+      "enemy_a",
+      "enemy_b",
+      "npc",
+      "chest",
+      "tile_grass",
+      "tile_wall"
+    ],
+    "Silent Hill style game": [
+      "player_down",
+      "player_side",
+      "monster_a",
+      "monster_b",
+      "key_item",
+      "health_item",
+      "blood_decal",
+      "tile_floor",
+      "tile_wall"
+    ],
+    "Other": [
+      "player",
+      "enemy_a",
+      "enemy_b",
+      "projectile",
+      "pickup",
+      "obstacle",
+      "tile_a",
+      "tile_b"
+    ]
+  },
+  "default_manifest": [
+    "player",
+    "enemy_a",
+    "enemy_b",
+    "projectile",
+    "pickup",
+    "obstacle",
+    "tile_a",
+    "tile_b"
+  ]
+}
